@@ -1,0 +1,4 @@
+# install pip install "unstructured[all-docs]"
+# install poppler https://github.com/oschwartz10612/poppler-windows/releases/
+# install tesseract https://github.com/UB-Mannheim/tesseract/wiki
+# install libmagic pip install python-magic

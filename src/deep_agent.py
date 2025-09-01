@@ -22,7 +22,12 @@ import os, uuid, json, textwrap
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from typing import Any, Dict, List, Optional, Annotated
+
+from pydantic import BaseModel
 from typing_extensions import TypedDict
+
+# OpenAI
+from openai import OpenAI
 
 # LangChain / LangGraph
 from langchain.chat_models import init_chat_model
@@ -36,7 +41,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 # Tools
 from langchain_tavily import TavilySearch
-from langchain.tools.python.tool import PythonREPLTool  # type: ignore
+from langchain_experimental.tools.python.tool import PythonREPLTool  # type: ignore
 
 import configparser
 
@@ -67,8 +72,11 @@ ASSETS_DIR = os.path.join(os.getcwd(), "report_assets");
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
 config = configparser.ConfigParser()
-config.read("D:\config.ini")
+config.read("config.ini")
 openaikey = config.get("openai", "API_KEY")
+
+# ---------------------- Client ----------------------
+client = OpenAI(api_key=openaikey)
 
 
 # ---------------------- Utils ----------------------
@@ -205,21 +213,35 @@ def build_llm():
     model_id = os.environ.get("LLM_MODEL", "openai:gpt-4o-mini")
     return init_chat_model(model_id, api_key=openaikey)
 
+class PlanFormat(BaseModel):
+    steps: List[str]
+    followups: List[str]
+    charts: List[str]
+    risks: List[str]
 
 # ---------------------- Nodes ----------------------
 def plan_research(state: ResearchState) -> ResearchState:
-    llm = build_llm()
-    msg = llm.invoke([
-        SystemMessage(content="You are a meticulous earnings planner. Output compact JSON."),
-        HumanMessage(content=textwrap.dedent("""
-        Create a plan with:
-        - steps (<=8) focused on Δ calc, IR+web root-cause, and forward scenario generation
-        - followups (e.g., consensus vendor, FX basis, segment defs)
-        - charts: EPS surprise %, Revenue surprise %, Guidance change, Scenario EPS band
-        - risks: FX normalization, calendar shifts, extra week, discontinued ops, SBC/one-offs
-        """))])
+    plan_prompt = textwrap.dedent("""
+    You are an meticulous earnings planner. Create a compact JSON plan with:
+    - steps (<=8) focused on Δ calc, IR+web root-cause, and forward scenario generation
+    - followups (e.g., consensus vendor, FX basis, segment defs)
+    - charts: EPS surprise %, Revenue surprise %, Guidance change, Scenario EPS band
+    - risks: FX normalization, calendar shifts, extra week, discontinued ops, SBC/one-offs
+    Output JSON as:
+    {"steps": [...], "followups": [...], "charts": [...], "risks": [...]}
+    """)
+
+    msg = client.responses.parse(
+        model = 'gpt-4o-mini',
+        input = [
+            {"role":"system", "content":"You are a meticulous earnings planner. Output compact JSON."},
+            {"role":"user", "content": plan_prompt}
+        ],
+        text_format=PlanFormat,
+    )
+
     try:
-        plan = json.loads(msg.content)
+        plan = msg.output_parsed
     except Exception:
         plan = {"steps": ["Δ calc", "web root-cause", "scenarios", "report"],
                 "followups": [], "charts": [], "risks": ["cross-check 2+ sources"]}
@@ -578,7 +600,7 @@ if __name__ == "__main__":
             except:
                 pass
 
-    # (옵션) 팔로업 응답 후 재개
+'''    # (옵션) 팔로업 응답 후 재개
     cmd = Command(resume={"data": "컨센서스: Bloomberg, FX: 고정환율, 세그먼트: Enterprise/Commercial"})
     for _ in app.stream(cmd, config, stream_mode="values"):
         pass
@@ -589,4 +611,4 @@ if __name__ == "__main__":
 
     state = app.get_state(config)
     print("\n---- REPORT ----\n")
-    print(state.values.get("report_md", "No report."))
+    print(state.values.get("report_md", "No report."))'''

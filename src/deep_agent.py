@@ -56,7 +56,7 @@ class ResearchState(TypedDict, total=False):
     ir_summary: str
 
     summaries: Dict[str, str]
-    research_plan: Dict[str, Any]
+    research_plan: PlanFormat
 
     tables: Dict[str, Any]
     charts: List[Dict[str, Any]]
@@ -72,8 +72,11 @@ ASSETS_DIR = os.path.join(os.getcwd(), "report_assets");
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
 config = configparser.ConfigParser()
-config.read("config.ini")
+config.read("D:/config.ini")
 openaikey = config.get("openai", "API_KEY")
+tavilykey = config.get("tavily", "API_KEY_NH")
+
+ai_model = "gpt-4o-mini"
 
 # ---------------------- Client ----------------------
 client = OpenAI(api_key=openaikey)
@@ -204,35 +207,58 @@ def make_chart(spec_json: str) -> str:
 
 
 def build_tools() -> List[Any]:
-    tavily = TavilySearch(api_key=os.environ.get("TAVILY_API_KEY", ""), max_results=2, topic="finance")
+    tavily = TavilySearch(tavily_api_key=tavilykey, max_results=2, topic="finance")
     py = PythonREPLTool()
     return [tavily, py, make_chart]
 
 
 def build_llm():
-    model_id = os.environ.get("LLM_MODEL", "openai:gpt-4o-mini")
-    return init_chat_model(model_id, api_key=openaikey)
+    return init_chat_model("openai:"+ai_model, api_key=openaikey)
 
 class PlanFormat(BaseModel):
     steps: List[str]
-    followups: List[str]
     charts: List[str]
     risks: List[str]
 
 # ---------------------- Nodes ----------------------
 def plan_research(state: ResearchState) -> ResearchState:
     plan_prompt = textwrap.dedent("""
-    You are an meticulous earnings planner. Create a compact JSON plan with:
-    - steps (<=8) focused on Δ calc, IR+web root-cause, and forward scenario generation
-    - followups (e.g., consensus vendor, FX basis, segment defs)
-    - charts: EPS surprise %, Revenue surprise %, Guidance change, Scenario EPS band
-    - risks: FX normalization, calendar shifts, extra week, discontinued ops, SBC/one-offs
-    Output JSON as:
-    {"steps": [...], "followups": [...], "charts": [...], "risks": [...]}
-    """)
+    당신은 실적 발표 데이터를 분석하는 데 매우 꼼꼼한 AI 분석가입니다.
+    사용자가 제공하는 실적 발표치와 컨센서스 데이터를 기반으로, 차이점의 원인을 분석하고 미래 시나리오를 예측하기 위한 상세한 분석 계획을 수립하세요.
+    다음 지침에 따라 JSON 형식으로 계획을 작성해야 합니다:
+    
+    1.  **계획 단계 (steps):**
+        -   최대 8단계 이내의 핵심적인 분석 절차를 포함해야 합니다.
+        -   '델타(Δ) 계산(실적-컨센서스)' → 'IR 및 웹 자료 기반 근본 원인 분석' → '미래 시나리오 생성'의 흐름을 중심으로 구체적인 단계를 구성하세요.
+        -   예시:
+            -   실적 발표 자료(Earnings Release)에서 핵심 재무 지표(매출, EPS 등)를 추출.
+            -   주요 컨센서스 제공업체(e.g., Bloomberg, Refinitiv)의 컨센서스 데이터 확보.
+            -   실적과 컨센서스 간의 차이(Δ)를 계산하고, 서프라이즈율(Surprise %)을 산출.
+            -   IR 자료, 컨퍼런스 콜 스크립트, 웹사이트 공시 등을 분석하여 차이 발생의 근본 원인 파악.
+            -   분석된 원인을 바탕으로 긍정적, 부정적 시나리오를 포함한 미래 EPS 및 매출 범위를 예측.
+            -   핵심 원인을 시각화하여 보고서에 포함할 차트 목록 생성.
+            -   보고서 초안 작성.
+    
+    2.  **제작할 차트 (charts):**
+        -   분석 결과에 포함될 주요 차트 목록을 명시하세요.
+        -   예시: EPS 서프라이즈율(%), 매출 서프라이즈율(%), 가이던스 변화, 시나리오별 EPS 범위.
+    
+    3.  **분석 위험 요소 (risks):**
+        -   분석 과정에서 고려해야 할 잠재적 위험 요소들을 나열하세요.
+        -   예시: 환율 변동, 회계 기간 변경, 추가 주간(Extra Week), 중단 사업부, 일회성 비용(SBC/One-offs) 등.
+    
+    4.  **Human-in-the-Loop (승인 절차):**
+        -   **계획 수립 후, 사용자(Human)에게 이 계획에 대한 승인 여부를 물어보세요.**
+        -   만약 사용자가 **'승인(Approve)'**하면 다음 단계로 진행합니다.
+        -   만약 사용자가 **'수정(Modify)'** 또는 **'거절(Reject)'**하면 계획 수립 단계로 되돌아가서 사용자의 피드백을 반영하여 새로운 계획을 작성해야 합니다.
+    
+    **최종 결과는 다음 JSON 형식으로만 출력해야 합니다:**
+    {"steps": [...], "charts": [...], "risks": [...]}
+    """
+    )
 
     msg = client.responses.parse(
-        model = 'gpt-4o-mini',
+        model = ai_model,
         input = [
             {"role":"system", "content":"You are a meticulous earnings planner. Output compact JSON."},
             {"role":"user", "content": plan_prompt}
@@ -244,11 +270,22 @@ def plan_research(state: ResearchState) -> ResearchState:
         plan = msg.output_parsed
     except Exception:
         plan = {"steps": ["Δ calc", "web root-cause", "scenarios", "report"],
-                "followups": [], "charts": [], "risks": ["cross-check 2+ sources"]}
-    if plan.get("followups"):
-        human = interrupt({"type": "followups", "questions": plan["followups"]})
-        return {"messages": [HumanMessage(content=f"[User answers] {human}")], "research_plan": plan}
-    return {"research_plan": plan, "messages": [AIMessage(content="Plan generated.")]}
+                "charts": [], "risks": ["cross-check 2+ sources"]}
+
+    # Test에서는 Interrupt 제외
+    '''# 여기서 interrupt 호출
+    approval = interrupt({"type": "approve",
+                          "message": f"Research plan proposed: {'\n'.join(plan.steps)}. Do you approve? (yes/no(with reasons))"})
+
+    # 승인 여부에 따라 분기
+    if approval.lower() in ["yes", "y", "approve"]:
+        return {"research_plan": plan,
+                "messages": [AIMessage(content=f"Research plan approved by user. Proceeding with the plan.")]}
+    else:
+        # 거절 시, 상태에 거절 사유를 저장하여 plan_research 노드로 돌아갈 때 참고하도록 함
+        return {"messages": [HumanMessage(content=f"User rejected the plan with reason: {approval}.")]}'''
+
+    return {"research_plan": plan, "messages": [AIMessage(content="Research plan created.")]}
 
 
 def agent(state: ResearchState) -> ResearchState:
@@ -257,13 +294,12 @@ def agent(state: ResearchState) -> ResearchState:
     llm_tools = llm.bind_tools(tools)
 
     sys = SystemMessage(content=(
-        "You are an Earnings-Focused Research Agent. Your primary goal is to analyze financial data, "
-        "explain the drivers of earnings results, and generate forward-looking scenarios. "
-        "Use tools (Python, Tavily, make_chart) when necessary. "
-        "Critically evaluate the provided data. If a specific analysis task is ambiguous, requires "
-        "subjective interpretation, or involves a high-stakes decision (e.g., inferring a key "
-        "trend from qualitative data without clear numbers), you must interrupt and ask for human guidance. "
-        "Use the provided summaries and ask precise questions to the human."
+        textwrap.dedent("""당신은 실적에 특화된 리서치 에이전트입니다. 
+        당신의 주요 임무는 재무 데이터를 분석하고, 실적 결과의 주요 원인을 설명하며, 미래 예측 시나리오를 생성하는 것입니다.
+        필요시 Python, Tavily, make_chart와 같은 도구를 활용하십시오.
+        제공된 데이터를 비판적으로 평가하세요.
+        특정 분석 작업이 모호하거나, 주관적인 해석이 필요하거나, 명확한 수치가 없는 정성적 데이터에서 핵심 추세를 추론하는 것과 같이 중요한 의사결정이 필요한 경우, 
+        반드시 작업을 중단하고 인간에게 지침을 요청해야 합니다. 제공된 요약 정보를 사용하여 인간에게 정확한 질문을 하십시오.""")
     ))
 
     last_messages = state["messages"][-6:] if state.get("messages") else []
@@ -271,40 +307,39 @@ def agent(state: ResearchState) -> ResearchState:
     # 에이전트의 자체 판단을 위한 프롬프트 추가
     context = _context_builder(state)
     prompt = textwrap.dedent(f"""
-        Context:
-        {context[:10000]}
-
-        Question:
-        {state['question']}
-
-        ---
-        Based on the above, consider if a human should be consulted. If the task is clear (e.g., calculate delta, make a chart), proceed with tools. If the task is ambiguous or requires qualitative judgment (e.g., "explain market sentiment," "assess the confidence of management guidance"), output a concise message for the human.
-
-        The message should be a direct question about the specific ambiguity.
-
-        Examples:
-        - I need to calculate the revenue delta, should I use GAAP or non-GAAP numbers?
-        - The IR summary mentions "macro headwinds." What specific macro factors should I prioritize investigating?
-        - Management's tone seems cautious. Should I interpret this as a major risk factor?
-
-        If no human input is required, simply proceed with your plan.
-        """)
+            Context:
+            {context}
+        
+            Question:
+            {state['question']}
+        
+            ---
+            위 내용을 바탕으로 인간에게 자문을 구해야 할지 고려하세요. 작업이 명확하다면(예: 델타 계산, 차트 생성) 도구를 사용하여 진행하세요. 작업이 모호하거나 정성적인 판단을 요한다면(예: "시장 심리 설명", "경영진 가이던스의 신뢰도 평가"), 인간을 위한 간결한 메시지를 출력하세요.
+        
+            메시지는 해당 모호성에 대한 직접적인 질문이어야 합니다.
+        
+            예시:
+            - 매출 델타를 계산해야 하는데, GAAP 수치를 사용해야 할까요, 아니면 비 GAAP 수치를 사용해야 할까요?
+            - IR 요약에서 "거시경제적 역풍"이 언급되었습니다. 어떤 특정 거시경제적 요인을 우선적으로 조사해야 할까요?
+            - 경영진의 어조가 조심스러워 보입니다. 이를 주요 위험 요소로 해석해야 할까요?
+        
+            인간의 입력이 필요하지 않다면, 단순히 계획을 진행하세요.
+            """)
 
     # LLM에 판단을 맡기기
     decision_message = llm.invoke([SystemMessage(content=prompt)] + last_messages)
 
-    # LLM이 인간에게 질문해야 한다고 판단할 경우, interrupt 호출
+    # test에서 interrupt 제외
+    '''# LLM이 인간에게 질문해야 한다고 판단할 경우, interrupt 호출
     if decision_message.content.startswith("I need") or decision_message.content.startswith(
             "What specific") or decision_message.content.startswith("Should I"):
-        return {"messages": [interrupt(decision_message.content)]}
+        return {"messages": [interrupt(decision_message.content)]}'''
 
     # 그렇지 않다면, 기존 워크플로우 진행
     ai = llm_tools.invoke([sys] + last_messages + [HumanMessage(content=prompt)])
     return {"messages": [ai]}
 
-
 tool_node = ToolNode(tools=build_tools())
-
 
 def synthesize(state: ResearchState) -> ResearchState:
     llm = build_llm()
@@ -315,90 +350,43 @@ def synthesize(state: ResearchState) -> ResearchState:
     ])
     return {"messages": [out]}
 
+class BandResult(BaseModel):
+    up_pct: List[float]   # [lo, hi]
+    down_pct: List[float] # [lo, hi] (음수)
 
-def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> dict:
+def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> BandResult:
     """
-    IR/가이던스 코멘트에서 신호를 추출해 밴드 폭을 결정.
-    반환: {"up_pct": [lo, hi], "down_pct": [lo, hi]}  # 퍼센트(소수)
-    우선순위: 명시 가이던스 범위 > 정성 신호 점수
+    IR/가이던스 코멘트에서 LLM을 통해 단계적 사유로 시나리오 밴드(상승/하락 퍼센트)를 추론.
+    반환: BandResult (up_pct/down_pct는 각각 [lo, hi] 리스트)
     """
-    ir = (ir_text or "").lower()
-    earn = (earnings_text or "").lower()
-
-    # (기존 로직 유지)
-    import re
-    rev_rng = re.findall(r"(revenue|sales)[^\d]{0,20}(\d+[.,]?\d*)\s*[-~]\s*(\d+[.,]?\d*)", ir)
-    eps_rng = re.findall(r"(eps)[^\d]{0,20}(\d+[.,]?\d*)\s*[-~]\s*(\d+[.,]?\d*)", ir)
-
-    guidance_hint = None
-    if rev_rng:
-        lo, hi = float(rev_rng[0][1].replace(',', '')), float(rev_rng[0][2].replace(',', ''))
-        width = (hi - lo) / max(lo, 1e-9)
-        guidance_hint = ("revenue", max(min(width, 0.25), 0.02))
-    elif eps_rng:
-        lo, hi = float(eps_rng[0][1].replace(',', '')), float(eps_rng[0][2].replace(',', ''))
-        width = (hi - lo) / max(lo, 1e-9)
-        guidance_hint = ("eps", max(min(width, 0.30), 0.03))
-
-    signals = {
-        "demand_up": any(k in ir for k in
-                         ["strong demand", "robust demand", "accelerating demand", "backlog up", "bookings up",
-                          "record backlog", "pipeline expansion", "healthy funnel", "sequential improvement"]),
-        "demand_down": any(k in ir for k in
-                           ["weak demand", "soft demand", "sluggish", "macro headwind", "inventory correction",
-                            "order pushout", "delays", "shortfall"]),
-        "pricing_up": any(k in ir for k in
-                          ["price increase", "pricing power", "favorable pricing", "mix improvement", "premium tier"]),
-        "pricing_down": any(
-            k in ir for k in ["price pressure", "discounting", "competitive pricing", "unfavorable mix"]),
-        "cost_up": any(
-            k in ir for k in ["cost inflation", "input costs up", "wage pressure", "energy cost up", "freight up"]),
-        "cost_down": any(k in ir for k in
-                         ["cost down", "efficiency gains", "opex discipline", "productivity", "scale benefits",
-                          "gross margin expansion"]),
-        "fx_tail": any(k in ir for k in ["fx tailwind", "currency tailwind"]),
-        "fx_head": any(k in ir for k in ["fx headwind", "currency headwind"]),
-        "supply_up": any(
-            k in ir for k in ["supply improvement", "capacity increase", "lead time improved", "yields up"]),
-        "supply_down": any(k in ir for k in ["supply constraint", "capacity constraint", "component shortage",
-                                             "manufacturing disruption"]),
-        "guide_up": any(k in ir for k in ["raise guidance", "increase guidance", "above guidance", "upgraded outlook"]),
-        "guide_down": any(
-            k in ir for k in ["lower guidance", "reduce guidance", "below guidance", "downgraded outlook"]),
-        "new_prod": any(k in ir for k in ["new product", "launch", "adoption", "attach rate", "land-and-expand"]),
-    }
-
-    w = {
-        "demand_up": +3, "demand_down": -3,
-        "pricing_up": +2, "pricing_down": -2,
-        "cost_down": +2, "cost_up": -2,
-        "fx_tail": +1, "fx_head": -1,
-        "supply_up": +1, "supply_down": -2,
-        "guide_up": +3, "guide_down": -3,
-        "new_prod": +2,
-    }
-    score = sum(w[k] for k, v in signals.items() if v and k in w)
-
-    def to_band(base_lo_hi=(0.06, 0.08), score=0):
-        base_lo, base_hi = base_lo_hi
-        adj = max(min(score, 10), -10) * 0.015
-        lo = max(0.02, base_lo + adj)
-        hi = max(lo + 0.01, base_hi + adj)
-        return (lo, hi)
-
-    up_lo, up_hi = to_band((0.06, 0.08), score)
-    dn_lo, dn_hi = to_band((0.06, 0.08), -score)
-
-    if guidance_hint:
-        _, width = guidance_hint
-        up_lo = max(0.02, width * 0.8)
-        up_hi = max(up_lo + 0.01, width * 1.2)
-        dn_lo = max(0.02, width * 0.8)
-        dn_hi = max(dn_lo + 0.01, width * 1.2)
-
-    return {"up_pct": [round(up_lo, 4), round(up_hi, 4)],
-            "down_pct": [-round(dn_hi, 4), -round(dn_lo, 4)]}
-
+    prompt = [
+        SystemMessage(content=(
+            "당신은 금융 애널리스트입니다. IR/가이던스와 실적 요약을 바탕으로, 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드(퍼센트, 예: 0.05 = +5%)를 단계적으로 사유하여 추정하세요.\n"
+            "다음 단계를 반드시 따르세요:\n"
+            "1. IR/가이던스와 실적 요약에서 긍정적 요인과 부정적 요인을 모두 나열하세요.\n"
+            "2. 각 요인이 실적에 미칠 영향(방향: 상승/하락, 강도: 약함/보통/강함)을 추정하세요.\n"
+            "3. 모든 요인의 영향을 종합하여, 합리적인 낙관적(상승) 및 비관적(하락) 밴드(퍼센트 범위)를 산출하세요.\n"
+            "최종적으로 아래 JSON 형식으로만 결과를 출력하세요:\n"
+            "{\"up_pct\": [lo, hi], \"down_pct\": [lo, hi]}"
+        )),
+        HumanMessage(content=f"""IR/가이던스:\n{ir_text}\n\n실적 요약:\n{earnings_text}\n\n출력 형식:\n{{"up_pct": [lo, hi], "down_pct": [lo, hi]}}""")
+    ]
+    try:
+        msg = client.responses.parse(
+            model='gpt-4o-mini',
+            input=[
+                {"role": "system", "content": "당신은 매우 꼼꼼한 실적 플래너입니다. 반드시 간결한 JSON만 출력하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            text_format=BandResult,
+        )
+        result = msg.output_parsed
+        if not (isinstance(result.up_pct, list) and len(result.up_pct) == 2 and
+                isinstance(result.down_pct, list) and len(result.down_pct) == 2):
+            raise ValueError("Invalid band format")
+        return result
+    except Exception:
+        return BandResult(up_pct=[0.06, 0.08], down_pct=[-0.08, -0.06])
 
 def scenario_generator(state: ResearchState) -> ResearchState:
     """
@@ -552,6 +540,13 @@ def build_graph():
     graph.add_node("finalize", finalize)
 
     graph.add_edge(START, "plan_research")
+
+    # Test에서는 승인 절차 제외
+    '''graph.add_conditional_edges(
+        "plan_research",
+        lambda state: "continue" if any("approved" in msg.content for msg in state["messages"]) else "retry_plan",
+        {"continue": "agent", "retry_plan": "plan_research"}
+    )'''
     graph.add_edge("plan_research", "agent")
 
     graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", "__end__": "scenario_generator"})

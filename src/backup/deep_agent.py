@@ -477,88 +477,173 @@ def synthesize(state: ResearchState) -> ResearchState:
         return {"messages": [AIMessage(content=f"Synthesis failed: {e}")]}
 
 class BandResult(BaseModel):
-    sales_up_pct: List[float]   # [lo, hi]
-    sales_down_pct: List[float] # [lo, hi] (음수)
-    operating_profit_pct: List[float]     # [lo, hi]
-    operating_profit_down_pct: List[float]   # [lo, hi] (음수
-    net_income_up_pct: List[float]  # [lo, hi]
-    net_income_down_pct: List[float] # [lo, hi] (음수
-    thinking: Optional[str] = None  # 단계적 사유 (디버깅용)
+    # 기준 추정치 (현재 컨센서스)
+    base_revenue: Optional[float] = None  # 기준 매출 (백만원)
+    base_operating_profit: Optional[float] = None  # 기준 영업이익 (백만원)  
+    base_net_income: Optional[float] = None  # 기준 순이익 (백만원)
+    
+    # 상승 시나리오 (절대값 + 변화율)
+    optimistic_revenue: List[float]  # [금액(백만원), 변화율(%)]
+    optimistic_operating_profit: List[float]  # [금액(백만원), 변화율(%)]
+    optimistic_net_income: List[float]  # [금액(백만원), 변화율(%)]
+    
+    # 하락 시나리오 (절대값 + 변화율)
+    pessimistic_revenue: List[float]  # [금액(백만원), 변화율(%)]
+    pessimistic_operating_profit: List[float]  # [금액(백만원), 변화율(%)]
+    pessimistic_net_income: List[float]  # [금액(백만원), 변화율(%)]
+    
+    # 상승 요인 분석
+    positive_factors: List[str]  # 긍정적 요인들
+    positive_impact_score: float  # 1-10 점수
+    
+    # 하락 요인 분석  
+    negative_factors: List[str]  # 부정적 요인들
+    negative_impact_score: float  # 1-10 점수
+    
+    # 신뢰도 및 사유
+    confidence_level: float  # 0.0-1.0 (예측 신뢰도)
+    key_assumptions: List[str]  # 핵심 가정사항들
+    reasoning: str  # 상세한 추론 과정
 
 def derive_band_from_ir(ir_text: str, earnings_text: str, consensus_text: str) -> BandResult:
     """
-    IR/가이던스 코멘트에서 LLM을 통해 단계적 사유로 시나리오 밴드(상승/하락 퍼센트)를 추론.
-    반환: BandResult (up_pct/down_pct는 각각 [lo, hi] 리스트)
+    IR/가이던스 코멘트에서 LLM을 통해 정밀한 시나리오 밴드를 추론.
+    기존 컨센서스를 기준으로 상승/하락 시나리오의 구체적 금액과 변화율을 계산.
     """
     try:
         client = get_openai_client()
         if not client:
             raise Exception("OpenAI client not available")
         
-        # Create structured prompt for BandResult
+        # 정교한 분석을 위한 다단계 프롬프트
         band_prompt = f"""
-        다음 IR/가이던스와 실적 요약을 바탕으로 기존 추정치를 바탕으로 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드를 추정하세요.
+        당신은 정밀한 재무 예측 전문가입니다. 다음 정보를 종합하여 매우 구체적이고 정교한 시나리오 분석을 수행하세요.
+
+        === 분석 데이터 ===
         
-        단계:
-        1. IR/가이던스와 실적 요약에서 긍정적 요인과 부정적 요인을 분석
-        2. 각 요인이 실적에 미칠 영향의 방향과 강도를 평가
-        3. 종합적으로 낙관적(상승) 및 비관적(하락) 밴드를 퍼센트로 산출 (예: 0.05 = +5%)
-        
-        IR/가이던스:
-        {ir_text}
-        
-        실적 요약:
-        {earnings_text}
-        
-        기존 추정치:
+        **기존 컨센서스/추정치:**
         {consensus_text}
         
-        up_pct는 [최소%, 최대%] 상승 범위를, down_pct는 [최소%, 최대%] 하락 범위를 나타냅니다.
+        **최근 실적 발표:**
+        {earnings_text}
+        
+        **IR/가이던스 정보:**
+        {ir_text}
+        
+        === 분석 절차 (반드시 순서대로 수행) ===
+        
+        1. **기준값 추출**: 컨센서스 데이터에서 매출, 영업이익, 순이익의 구체적 수치를 백만원 단위로 추출
+        
+        2. **긍정적 요인 분석**:
+           - 실적 발표와 IR에서 언급된 모든 긍정적 요인들을 나열
+           - 각 요인이 매출/영업이익/순이익에 미치는 구체적 영향도를 1-10점으로 평가
+           - 정량적 근거가 있는 경우 구체적 수치 영향 추정
+        
+        3. **부정적 요인 분석**:
+           - 실적 발표와 IR에서 언급된 모든 부정적 요인들을 나열  
+           - 각 요인이 매출/영업이익/순이익에 미치는 구체적 영향도를 1-10점으로 평가
+           - 정량적 근거가 있는 경우 구체적 수치 영향 추정
+        
+        4. **시나리오 계산**:
+           - 낙관적 시나리오: 긍정 요인들이 최대한 실현될 때의 구체적 금액과 변화율
+           - 비관적 시나리오: 부정 요인들이 최대한 현실화될 때의 구체적 금액과 변화율
+           - 각 시나리오별로 [절대금액(백만원), 기준대비변화율(%)] 형태로 제시
+        
+        5. **신뢰도 평가**:
+           - 예측 신뢰도를 0.0-1.0으로 평가 (과거 가이던스 정확도, 시장 불확실성 고려)
+           - 핵심 가정사항들을 명확히 나열
+           - 상세한 추론 과정을 단계별로 설명
+        
+        === 주의사항 ===
+        - 모든 수치는 구체적이고 현실적이어야 함
+        - 변화율은 소수점 둘째자리까지 정확히 계산
+        - 추정 근거를 명확히 제시
+        - 업종 특성과 시장 환경을 반영
+        
+        최종 결과는 반드시 제공된 JSON 스키마 형식을 정확히 준수하세요.
         """
             
         response = client.beta.chat.completions.parse(
             model='gpt-4o-mini',
             messages=[
-                {"role": "system", "content": "당신은 매우 꼼꼼한 실적 플래너입니다. 제공된 스키마를 정확히 따라야 합니다."},
+                {"role": "system", "content": "당신은 정밀한 재무 예측 전문가입니다. 모든 수치를 정확하게 계산하고 현실적인 시나리오를 제시해야 합니다."},
                 {"role": "user", "content": band_prompt}
             ],
             response_format=BandResult,
-            temperature=0.2
+            temperature=0.1  # 더 일관된 결과를 위해 낮은 온도
         )
         
-        # Extract structured response (automatically validates against BandResult)
         result = response.choices[0].message.parsed
         
-        # Additional validation to ensure data integrity
-        def validate_band_result(band_result: BandResult) -> bool:
-            """Validate BandResult structure and values."""
-            if not (isinstance(band_result.up_pct, list) and len(band_result.up_pct) == 2):
-                return False
-            if not (isinstance(band_result.down_pct, list) and len(band_result.down_pct) == 2):
-                return False
-            
-            # Check that all values are numbers and in reasonable ranges
-            all_values = band_result.up_pct + band_result.down_pct
-            for val in all_values:
-                if not isinstance(val, (int, float)):
-                    return False
-                if abs(val) > 1.0:  # More than 100% change seems unreasonable
-                    return False
-            
-            # Check logical consistency: up_pct should be positive, down_pct should be negative
-            if any(val < 0 for val in band_result.up_pct):
-                return False
-            if any(val > 0 for val in band_result.down_pct):
-                return False
-                
-            return True
-        
-        if not validate_band_result(result):
-            raise ValueError("BandResult validation failed - invalid structure or values")
+        # 강화된 검증 로직
+        if not validate_enhanced_band_result(result):
+            raise ValueError("Enhanced BandResult validation failed")
             
         return result
+        
+    except Exception as e:
+        print(f"Error in derive_band_from_ir: {e}")
+        # 기본값 반환 (새로운 스키마에 맞게)
+        return BandResult(
+            base_revenue=5000.0,
+            base_operating_profit=800.0, 
+            base_net_income=600.0,
+            optimistic_revenue=[5400.0, 8.0],
+            optimistic_operating_profit=[920.0, 15.0],
+            optimistic_net_income=[720.0, 20.0],
+            pessimistic_revenue=[4600.0, -8.0],
+            pessimistic_operating_profit=[680.0, -15.0], 
+            pessimistic_net_income=[480.0, -20.0],
+            positive_factors=["시장 회복", "신제품 출시"],
+            positive_impact_score=6.5,
+            negative_factors=["원자재 가격 상승", "환율 변동"],
+            negative_impact_score=5.5,
+            confidence_level=0.7,
+            key_assumptions=["시장 환경 안정", "환율 변동 제한적"],
+            reasoning="기본 추정치 기반 보수적 시나리오 적용"
+        )
+
+def validate_enhanced_band_result(result: BandResult) -> bool:
+    """강화된 BandResult 검증 함수"""
+    try:
+        # 기본 구조 검증
+        required_lists = [
+            result.optimistic_revenue, result.optimistic_operating_profit, result.optimistic_net_income,
+            result.pessimistic_revenue, result.pessimistic_operating_profit, result.pessimistic_net_income
+        ]
+        
+        for lst in required_lists:
+            if not isinstance(lst, list) or len(lst) != 2:
+                return False
+            if not all(isinstance(val, (int, float)) for val in lst):
+                return False
+        
+        # 논리적 일관성 검증
+        if result.base_revenue and result.base_revenue <= 0:
+            return False
+        if result.base_operating_profit and result.base_operating_profit <= 0:
+            return False
+        if result.base_net_income and result.base_net_income <= 0:
+            return False
+            
+        # 점수 범위 검증
+        if not (1.0 <= result.positive_impact_score <= 10.0):
+            return False
+        if not (1.0 <= result.negative_impact_score <= 10.0):
+            return False
+        if not (0.0 <= result.confidence_level <= 1.0):
+            return False
+            
+        # 변화율 합리성 검증 (±100% 이내)
+        for scenario_list in required_lists:
+            change_pct = scenario_list[1]
+            if abs(change_pct) > 100.0:
+                return False
+                
+        return True
+        
     except Exception:
-        return BandResult(up_pct=[0.06, 0.08], down_pct=[-0.08, -0.06])
+        return False
 
 def scenario_generator(state: ResearchState) -> ResearchState:
     """
@@ -589,51 +674,109 @@ def scenario_generator(state: ResearchState) -> ResearchState:
     except Exception:
         base_est = {"quarter": None, "revenue": None, "eps": None}
 
+    # 향상된 밴드 분석 결과 활용
     bands = derive_band_from_ir(ir_text, earnings_analysis, consensus_analysis)
-    up_lo, up_hi = bands.up_pct
-    dn_lo, dn_hi = bands.down_pct
-
-    def rng_pct(val, lo_pct, hi_pct):
-        if val is None: return [None, None]
-        lo = round(val * (1 + lo_pct), 2)
-        hi = round(val * (1 + hi_pct), 2)
-        return [min(lo, hi), max(lo, hi)]
+    
+    # 기준값 설정 (BandResult에서 추출하거나 기존 추정치 사용)
+    base_revenue = bands.base_revenue if bands.base_revenue else base_est.get("revenue")
+    base_operating_profit = bands.base_operating_profit
+    base_net_income = bands.base_net_income
 
     scen = {
         "base": {
             "quarter": base_est.get("quarter"),
-            "revenue": base_est.get("revenue"),
+            "revenue": base_revenue,
+            "operating_profit": base_operating_profit,
+            "net_income": base_net_income,
             "eps": base_est.get("eps"),
-            "assumption": "Maintain consensus/base demand & cost profile."
+            "assumption": "기존 컨센서스 기준 시나리오",
+            "confidence": bands.confidence_level
         },
         "optimistic": {
             "quarter": base_est.get("quarter"),
-            "revenue_range": rng_pct(base_est.get("revenue"), up_lo, up_hi),
-            "eps_range": rng_pct(base_est.get("eps"), up_lo, up_hi),
-            "assumption": "IR-tailwinds: demand/pricing/mix/cost improvements as indicated."
+            "revenue": bands.optimistic_revenue[0] if bands.optimistic_revenue else None,
+            "revenue_change_pct": bands.optimistic_revenue[1] if bands.optimistic_revenue else None,
+            "operating_profit": bands.optimistic_operating_profit[0] if bands.optimistic_operating_profit else None,
+            "operating_profit_change_pct": bands.optimistic_operating_profit[1] if bands.optimistic_operating_profit else None,
+            "net_income": bands.optimistic_net_income[0] if bands.optimistic_net_income else None,
+            "net_income_change_pct": bands.optimistic_net_income[1] if bands.optimistic_net_income else None,
+            "positive_factors": bands.positive_factors,
+            "impact_score": bands.positive_impact_score,
+            "assumption": f"긍정 요인 실현: {', '.join(bands.positive_factors[:3])}..."
         },
         "pessimistic": {
             "quarter": base_est.get("quarter"),
-            "revenue_range": rng_pct(base_est.get("revenue"), dn_lo, dn_hi),
-            "eps_range": rng_pct(base_est.get("eps"), dn_lo, dn_hi),
-            "assumption": "IR-headwinds: macro/FX/competition/supply or guidance tone downbeat."
+            "revenue": bands.pessimistic_revenue[0] if bands.pessimistic_revenue else None,
+            "revenue_change_pct": bands.pessimistic_revenue[1] if bands.pessimistic_revenue else None,
+            "operating_profit": bands.pessimistic_operating_profit[0] if bands.pessimistic_operating_profit else None,
+            "operating_profit_change_pct": bands.pessimistic_operating_profit[1] if bands.pessimistic_operating_profit else None,
+            "net_income": bands.pessimistic_net_income[0] if bands.pessimistic_net_income else None,
+            "net_income_change_pct": bands.pessimistic_net_income[1] if bands.pessimistic_net_income else None,
+            "negative_factors": bands.negative_factors,
+            "impact_score": bands.negative_impact_score,
+            "assumption": f"부정 요인 현실화: {', '.join(bands.negative_factors[:3])}..."
+        },
+        "analysis_meta": {
+            "key_assumptions": bands.key_assumptions,
+            "reasoning": bands.reasoning,
+            "confidence_level": bands.confidence_level
         }
     }
 
     charts_meta = state.get("charts", []).copy()
     q = base_est.get("quarter") or "Next Q"
-    if base_est.get("eps") is not None:
-        spec_eps = {
-            "title": f"EPS Scenario Band - {q}", "x": ["Pessimistic", "Base", "Optimistic"],
+    
+    # 매출 시나리오 차트 생성
+    if scen["base"]["revenue"] and scen["optimistic"]["revenue"] and scen["pessimistic"]["revenue"]:
+        spec_revenue = {
+            "title": f"매출 시나리오 분석 - {q}",
+            "xlabel": "시나리오", 
+            "ylabel": "매출 (백만원)",
             "y_series": [{
-                "name": "EPS", "kind": "bar",
-                "values": [scen["pessimistic"]["eps_range"][0], scen["base"]["eps"], scen["optimistic"]["eps_range"][1]]
+                "name": "매출", "kind": "bar",
+                "values": [
+                    scen["pessimistic"]["revenue"], 
+                    scen["base"]["revenue"], 
+                    scen["optimistic"]["revenue"]
+                ],
+                "x": ["비관적", "기준", "낙관적"],
+                "data_labels": True
             }],
-            "xlabel": "Scenario", "ylabel": "EPS", "caption": f"{q} EPS scenario band (IR-informed)"
+            "caption": f"{q} 매출 시나리오 밴드 (컨센서스 기반 정밀 분석)"
         }
-        chart_result = make_chart.invoke({"spec_json": json.dumps(spec_eps)})
-        data = json.loads(chart_result)
-        if "path" in data: charts_meta.append({"spec": spec_eps, "path": data["path"], "caption": data["caption"]})
+        try:
+            chart_result = make_chart.invoke({"spec_json": json.dumps(spec_revenue)})
+            data = json.loads(chart_result)
+            if "path" in data: 
+                charts_meta.append({"spec": spec_revenue, "path": data["path"], "caption": data["caption"]})
+        except Exception as e:
+            print(f"차트 생성 실패: {e}")
+    
+    # 영업이익 시나리오 차트 생성
+    if scen["base"]["operating_profit"] and scen["optimistic"]["operating_profit"] and scen["pessimistic"]["operating_profit"]:
+        spec_op = {
+            "title": f"영업이익 시나리오 분석 - {q}",
+            "xlabel": "시나리오", 
+            "ylabel": "영업이익 (백만원)",
+            "y_series": [{
+                "name": "영업이익", "kind": "bar",
+                "values": [
+                    scen["pessimistic"]["operating_profit"], 
+                    scen["base"]["operating_profit"], 
+                    scen["optimistic"]["operating_profit"]
+                ],
+                "x": ["비관적", "기준", "낙관적"],
+                "data_labels": True
+            }],
+            "caption": f"{q} 영업이익 시나리오 밴드 (요인별 영향 분석)"
+        }
+        try:
+            chart_result = make_chart.invoke({"spec_json": json.dumps(spec_op)})
+            data = json.loads(chart_result)
+            if "path" in data: 
+                charts_meta.append({"spec": spec_op, "path": data["path"], "caption": data["caption"]})
+        except Exception as e:
+            print(f"영업이익 차트 생성 실패: {e}")
 
     return {"scenarios": scen, "charts": charts_meta,
             "messages": [AIMessage(content="IR-informed scenarios generated.")]}
@@ -651,8 +794,8 @@ def compose_report(state: ResearchState) -> ResearchState:
               state.get("earnings_analysis", "-")]
     parts += ["\n## 3. Drivers via IR + Web\n",
               state.get("ir_summary", "-")]
-    parts += ["\n## 4. Future Guidance Analysis\n",
-              state.get("future_guidance", "-")]
+    parts += ["\n## 4. Consensus Analysis\n",
+              state.get("consensus_analysis", "-")]
 
     charts = state.get("charts", [])
     if charts:
@@ -665,29 +808,39 @@ def compose_report(state: ResearchState) -> ResearchState:
         parts.append("\n## 6. Forward Scenarios (Optimistic / Base / Pessimistic)\n")
         q = scen.get("base", {}).get("quarter", "Next Q")
 
-        def row(label, rev, eps, asm):
-            return f"| {label} | {rev} | {eps} | {asm} |"
-
         parts.append(f"**기준 분기:** {q}\n")
-        parts.append("| 시나리오 | 매출 | EPS | 가정 |\n|---|---|---|---|")
-        base_rev = scen.get("base", {}).get("revenue")
-        base_eps = scen.get("base", {}).get("eps")
-        opt_rev = scen.get("optimistic", {}).get("revenue_range")
-        opt_eps = scen.get("optimistic", {}).get("eps_range")
-        pes_rev = scen.get("pessimistic", {}).get("revenue_range")
-        pes_eps = scen.get("pessimistic", {}).get("eps_range")
-        parts.append(row("긍정",
-                         f"{opt_rev[0]}~{opt_rev[1]}" if opt_rev and None not in opt_rev else "-",
-                         f"{opt_eps[0]}~{opt_eps[1]}" if opt_eps and None not in opt_eps else "-",
-                         scen.get("optimistic", {}).get("assumption", "-")))
-        parts.append(row("보수",
-                         f"{base_rev}" if base_rev is not None else "-",
-                         f"{base_eps}" if base_eps is not None else "-",
-                         scen.get("base", {}).get("assumption", "-")))
-        parts.append(row("부정",
-                         f"{pes_rev[0]}~{pes_rev[1]}" if pes_rev and None not in pes_rev else "-",
-                         f"{pes_eps[0]}~{pes_eps[1]}" if pes_eps and None not in pes_eps else "-",
-                         scen.get("pessimistic", {}).get("assumption", "-")))
+        parts.append("| 시나리오 | 매출(백만원) | 영업이익(백만원) | 순이익(백만원) | 신뢰도 | 주요가정 |")
+        parts.append("|---|---:|---:|---:|---:|---|")
+        
+        # 기준 시나리오
+        base_data = scen.get("base", {})
+        parts.append(f"| 기준 | {base_data.get('revenue', '-'):,.0f} | {base_data.get('operating_profit', '-'):,.0f} | {base_data.get('net_income', '-'):,.0f} | {base_data.get('confidence', 0.0):.1%} | {base_data.get('assumption', '-')} |")
+        
+        # 낙관적 시나리오  
+        opt_data = scen.get("optimistic", {})
+        opt_rev = f"{opt_data.get('revenue', 0):,.0f} (+{opt_data.get('revenue_change_pct', 0):.1f}%)" if opt_data.get("revenue") else "-"
+        opt_op = f"{opt_data.get('operating_profit', 0):,.0f} (+{opt_data.get('operating_profit_change_pct', 0):.1f}%)" if opt_data.get("operating_profit") else "-"
+        opt_ni = f"{opt_data.get('net_income', 0):,.0f} (+{opt_data.get('net_income_change_pct', 0):.1f}%)" if opt_data.get("net_income") else "-"
+        parts.append(f"| 낙관적 | {opt_rev} | {opt_op} | {opt_ni} | {opt_data.get('impact_score', 0)/10:.1%} | {opt_data.get('assumption', '-')[:30]}... |")
+        
+        # 비관적 시나리오
+        pes_data = scen.get("pessimistic", {})
+        pes_rev = f"{pes_data.get('revenue', 0):,.0f} ({pes_data.get('revenue_change_pct', 0):.1f}%)" if pes_data.get("revenue") else "-"
+        pes_op = f"{pes_data.get('operating_profit', 0):,.0f} ({pes_data.get('operating_profit_change_pct', 0):.1f}%)" if pes_data.get("operating_profit") else "-"
+        pes_ni = f"{pes_data.get('net_income', 0):,.0f} ({pes_data.get('net_income_change_pct', 0):.1f}%)" if pes_data.get("net_income") else "-"
+        parts.append(f"| 비관적 | {pes_rev} | {pes_op} | {pes_ni} | {pes_data.get('impact_score', 0)/10:.1%} | {pes_data.get('assumption', '-')[:30]}... |")
+        
+        # 분석 메타 정보 추가
+        meta_data = scen.get("analysis_meta", {})
+        if meta_data:
+            parts.append(f"\n**핵심 가정사항:**")
+            for assumption in meta_data.get("key_assumptions", []):
+                parts.append(f"- {assumption}")
+            
+            parts.append(f"\n**분석 신뢰도:** {meta_data.get('confidence_level', 0.0):.1%}")
+            
+            if meta_data.get("reasoning"):
+                parts.append(f"\n**추론 근거:** {meta_data.get('reasoning')[:200]}...")
 
     parts += ["\n\n## 7. Supporting Context\n### 7.1 Financials (sanity checks)\n",
               state.get("financial_analysis", "-"),

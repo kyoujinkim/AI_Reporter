@@ -80,7 +80,7 @@ ASSETS_DIR = os.path.join(os.getcwd(), "report_assets");
 os.makedirs(ASSETS_DIR, exist_ok=True)
 
 config = configparser.ConfigParser()
-config_file = os.path.join(os.path.dirname(__file__), "config.ini")
+config_file = "D:/config.ini"
 
 # Try to load config, provide defaults if not found
 try:
@@ -329,21 +329,44 @@ def plan_research(state: ResearchState) -> ResearchState:
         client = get_openai_client()
         if not client:
             raise Exception("OpenAI client not available")
-            
-        response = client.chat.completions.create(
+        
+        # Use OpenAI's structured output to force PlanFormat schema
+        response = client.beta.chat.completions.parse(
             model=ai_model,
             messages=[
-                {"role": "system", "content": "You are a meticulous earnings planner. Output compact JSON."},
+                {"role": "system", "content": "You are a meticulous earnings planner. You must follow the exact JSON schema provided."},
                 {"role": "user", "content": plan_prompt}
             ],
+            response_format=PlanFormat,
             temperature=0.2
         )
         
-        # Parse JSON response
-        plan_json = response.choices[0].message.content
-        import json
-        plan_dict = json.loads(plan_json)
-        plan = PlanFormat(**plan_dict)
+        # Extract structured response (automatically validates against PlanFormat)
+        plan = response.choices[0].message.parsed
+        
+        # Additional validation for PlanFormat
+        def validate_plan_format(plan_result: PlanFormat) -> bool:
+            """Validate PlanFormat structure and content."""
+            if not isinstance(plan_result.steps, list) or len(plan_result.steps) == 0:
+                return False
+            if not isinstance(plan_result.charts, list):
+                return False
+            if not isinstance(plan_result.risks, list):
+                return False
+                
+            # Check that all steps are non-empty strings
+            for step in plan_result.steps:
+                if not isinstance(step, str) or len(step.strip()) == 0:
+                    return False
+                    
+            # Validate reasonable step count (between 1 and 10)
+            if len(plan_result.steps) > 10:
+                return False
+                
+            return True
+        
+        if not validate_plan_format(plan):
+            raise ValueError("PlanFormat validation failed - invalid structure or content")
     except Exception as e:
         print(f"Plan parsing failed: {e}")
         plan = PlanFormat(
@@ -476,23 +499,65 @@ def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> BandResult:
         client = get_openai_client()
         if not client:
             raise Exception("OpenAI client not available")
+        
+        # Create structured prompt for BandResult
+        band_prompt = f"""
+        다음 IR/가이던스와 실적 요약을 바탕으로 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드를 추정하세요.
+        
+        단계:
+        1. IR/가이던스와 실적 요약에서 긍정적 요인과 부정적 요인을 분석
+        2. 각 요인이 실적에 미칠 영향의 방향과 강도를 평가
+        3. 종합적으로 낙관적(상승) 및 비관적(하락) 밴드를 퍼센트로 산출 (예: 0.05 = +5%)
+        
+        IR/가이던스:
+        {ir_text}
+        
+        실적 요약:
+        {earnings_text}
+        
+        up_pct는 [최소%, 최대%] 상승 범위를, down_pct는 [최소%, 최대%] 하락 범위를 나타냅니다.
+        """
             
-        response = client.chat.completions.create(
+        response = client.beta.chat.completions.parse(
             model='gpt-4o-mini',
             messages=[
-                {"role": "system", "content": "당신은 매우 꼼꼼한 실적 플래너입니다. 반드시 간결한 JSON만 출력하세요."},
-                {"role": "user", "content": f"IR/가이던스:\n{ir_text}\n\n실적 요약:\n{earnings_text}\n\n출력 형식:\n{{\"up_pct\": [lo, hi], \"down_pct\": [lo, hi]}}"}
+                {"role": "system", "content": "당신은 매우 꼼꼼한 실적 플래너입니다. 제공된 스키마를 정확히 따라야 합니다."},
+                {"role": "user", "content": band_prompt}
             ],
+            response_format=BandResult,
             temperature=0.2
         )
         
-        band_json = response.choices[0].message.content
-        import json
-        band_dict = json.loads(band_json)
-        result = BandResult(**band_dict)
-        if not (isinstance(result.up_pct, list) and len(result.up_pct) == 2 and
-                isinstance(result.down_pct, list) and len(result.down_pct) == 2):
-            raise ValueError("Invalid band format")
+        # Extract structured response (automatically validates against BandResult)
+        result = response.choices[0].message.parsed
+        
+        # Additional validation to ensure data integrity
+        def validate_band_result(band_result: BandResult) -> bool:
+            """Validate BandResult structure and values."""
+            if not (isinstance(band_result.up_pct, list) and len(band_result.up_pct) == 2):
+                return False
+            if not (isinstance(band_result.down_pct, list) and len(band_result.down_pct) == 2):
+                return False
+            
+            # Check that all values are numbers and in reasonable ranges
+            all_values = band_result.up_pct + band_result.down_pct
+            for val in all_values:
+                if not isinstance(val, (int, float)):
+                    return False
+                if abs(val) > 1.0:  # More than 100% change seems unreasonable
+                    return False
+            
+            # Check logical consistency: up_pct should be positive, down_pct should be negative
+            if any(val < 0 for val in band_result.up_pct):
+                return False
+            if any(val > 0 for val in band_result.down_pct):
+                return False
+                
+            return True
+        
+        if not validate_band_result(result):
+            raise ValueError("BandResult validation failed - invalid structure or values")
+            
         return result
     except Exception:
         return BandResult(up_pct=[0.06, 0.08], down_pct=[-0.08, -0.06])
@@ -750,6 +815,26 @@ if __name__ == "__main__":
 
     print("Starting deep research agent workflow...")
     print(f"Input summary lengths: CB={len(cb)}, FA={len(fa)}, EA={len(ea)}, IR={len(ir)}")
+    
+    # Test PlanFormat validation
+    print("Testing PlanFormat schema enforcement...")
+    try:
+        test_plan = PlanFormat(
+            steps=["Test step 1", "Test step 2"],
+            charts=["Test chart 1"],
+            risks=["Test risk 1"]
+        )
+        print(f"✅ PlanFormat validation passed: {len(test_plan.steps)} steps, {len(test_plan.charts)} charts, {len(test_plan.risks)} risks")
+    except Exception as e:
+        print(f"❌ PlanFormat validation failed: {e}")
+    
+    # Test BandResult validation  
+    print("Testing BandResult schema enforcement...")
+    try:
+        test_band = BandResult(up_pct=[0.05, 0.10], down_pct=[-0.10, -0.05])
+        print(f"✅ BandResult validation passed: up={test_band.up_pct}, down={test_band.down_pct}")
+    except Exception as e:
+        print(f"❌ BandResult validation failed: {e}")
     
     try:
         import time

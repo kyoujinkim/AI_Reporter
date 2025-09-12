@@ -29,13 +29,13 @@ tableagent = Agent(
     api_key=ai_key,
     name="TableAgent",
     description="당신은 표를 분석하는 전문가입니다. 셀 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-    model="gpt-5-mini"
+    model="gpt-4.1-nano"
 )
 iragent = Agent(
     api_key=ai_key,
     name="IRAgent",
     description="당신은 기업의 IR 분석 전문가입니다. 사업보고서, 재무제표, 실적발표 등을 분석하고 요약하는 데 능숙합니다. 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-    model="gpt-5-mini"
+    model="gpt-4.1-nano"
 )
 
 company_info = dart.company(code)
@@ -202,7 +202,9 @@ def analyze_future_guidance(fncode, out_dir='./data/summary'):
     """
     try:
         # future sheet 읽기
-        future_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='future')
+        future_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='future', header=9)
+        future_data.index = future_data['Period'].astype(str) + ' ' + future_data['Name'] + '(백만원)'
+        future_data = future_data[future_data.columns[-1:]]
         
         # 데이터가 비어있는지 확인
         if future_data.empty:
@@ -254,10 +256,6 @@ def analyze_future_guidance(fncode, out_dir='./data/summary'):
         return error_msg
     except ValueError as e:
         error_msg = f"Error: 'future' 시트를 찾을 수 없습니다: {e}"
-        print(error_msg)
-        return error_msg
-    except Exception as e:
-        error_msg = f"Error: 미래 가이던스 분석 중 오류 발생: {e}"
         print(error_msg)
         return error_msg
 

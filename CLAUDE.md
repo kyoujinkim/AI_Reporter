@@ -4,98 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an AI-powered financial reporter system that analyzes company financial data from Korean DART (Data Analysis, Retrieval and Transfer System) and generates comprehensive investment reports. The system combines multiple AI agents to process earnings reports, financial statements, IR presentations, and business documents.
+이 프로젝트는 기업의 실적 발표 자료를 기준으로 기존 예측치 상회/하회 여부를 분석하고, 다양한 시나리오를 생성하는 AI 기반 시스템입니다.
+사용할 수 있는 데이터는 다음과 같습니다.
+- 기업의 내용 : ./data/summary/company_business.md
+- 실적발표와 과거 추정치 비교 : ./data/summary/earnings_analysis.md
+- 재무제표 분석 : ./data/summary/financial_analysis.md
+- IR 발표자료 요약 : ./data/summary/ir_summary.md
+- 다음 분기 실적 추정치: ./data/consensus_analysis.md
+
+AI 시스템의 목적은 이 데이터를 종합하여 다음과 같은 작업을 수행하는 것입니다.
+1. 실적 발표 결과가 기존 예측치를 상회/하회한 이유 분석
+2. 향후 실적에 대한 다양한 시나리오 생성 (예: 낙관적, 비관적, 중립적)
+3. 각 시나리오에 대한 근거 및 설명 제공
+4. 최종 보고서 작성 (마크다운 형식)
+5. 차트 생성 (막대, 선, 파이, 산점도 등)
 
 ## Core Architecture
 
-### Main Components
-
-- **`src/report.py`** - Main orchestration script that coordinates the entire reporting pipeline
-- **`src/deep_agent.py`** - LangGraph-based deep research agent for earnings analysis and scenario generation  
-- **`src/readPDF_v2.py`** - PDF reader utility for processing financial documents
-
 ### Key Tools (`src/tools/`)
-
-- **`agents.py`** - Generic Agent class wrapper for OpenAI API calls
-- **`summarizer.py`** - Hierarchical text summarization using token-aware chunking
-- **`pdf_parser.py`** - Advanced PDF parser that converts pages to images and uses GPT-4V for analysis
-- **`table_parser.py`** - Table extraction and processing utilities
-
-## Dependencies and Setup
-
-### Required External Tools
-Before running the project, install these external dependencies (documented in `install_process.txt`):
-
-```bash
-# Install unstructured with all document support
-pip install "unstructured[all-docs]"
-
-# Windows-specific: Install poppler for PDF processing
-# Download from: https://github.com/oschwartz10612/poppler-windows/releases/
-
-# Install tesseract for OCR
-# Download from: https://github.com/UB-Mannheim/tesseract/wiki
-
-# Install libmagic
-pip install python-magic
-```
-
-### Python Dependencies
-Install Python packages from `requirements.txt`:
-```bash
-pip install -r requirements.txt
-```
-
-### Configuration File
-The system expects a config file at `D:/config.ini` with:
-```ini
-[dart]
-API_KEY = your_dart_api_key
-
-[openai] 
-API_KEY = your_openai_api_key
-
-[tavily]
-API_KEY_NH = your_tavily_api_key
-```
-
-## Common Commands
-
-### Running Analysis
-```bash
-# Run complete financial analysis pipeline
-python src/report.py
-
-# Run deep research agent with scenario generation
-python src/deep_agent.py
-
-# Parse PDF IR documents
-python src/tools/pdf_parser.py --pdf path/to/document.pdf --out ./output
-```
-
-### Data Structure
-The system expects this data structure:
-```
-./data/
-├── A{company_code}_IS.xlsx    # Financial statements (consensus, sales, op, income sheets)
-├── A{company_code}_IR.pdf     # IR presentation PDF
-└── summary/                   # Generated markdown summaries
-    ├── company_business.md
-    ├── financial_analysis.md
-    ├── earnings_analysis.md
-    └── ir_summary.md
-```
-
-## Key Integration Points
-
-### Agent Workflow
-1. **Data Collection**: `report.py` fetches DART reports, financial data, and IR documents
-2. **Processing**: Each component (business summary, financial analysis, earnings analysis, IR summary) is processed separately
-3. **Deep Analysis**: `deep_agent.py` takes processed summaries and generates scenarios using LangGraph workflow
-4. **Output**: Final markdown reports with charts and scenario analysis
+- 필요하다면 Tavily API와 인간의 중간 개입을 요청할 수 있습니다.
 
 ### AI Model Configuration
-- Default model: `gpt-4.1-nano-2025-04-14` (configurable in agent classes)
+- Default model: `gpt-4.1-mini` (configurable in agent classes)
 - PDF analysis uses: `gpt-4o-mini` for vision tasks
 - Summarizer uses token-aware chunking with 4000 token chunks, 2000 token summaries
 
@@ -104,10 +34,3 @@ The system includes a sophisticated chart generation tool (`make_chart`) that su
 - Multiple chart types (bar, line, pie, scatter, area)
 - Multi-series data with secondary y-axis
 - Data labels and customizable styling
-
-## Important Notes
-
-- Company code is hardcoded as '381970' in `report.py` - modify as needed
-- The system processes Korean financial documents and generates Korean language reports
-- PDF parsing can handle both text extraction and vision-based analysis for complex layouts
-- The deep agent supports human-in-the-loop approval workflows (currently disabled in test mode)

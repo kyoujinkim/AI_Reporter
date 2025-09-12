@@ -117,7 +117,7 @@ def earnings_report(code):
     # Read earnings report
     startdate = datetime.today() - timedelta(days=60)  # 1년 전부터 시작
     earnings = dart.list(code, start=startdate.strftime("%Y-%m-%d"), kind='I', final=True)
-    earnings = earnings[earnings['report_nm'].str.contains('영업\(잠정\)실적')]
+    earnings = earnings[earnings['report_nm'].str.contains('영업\\(잠정\\)실적', regex=True)]
     if len(earnings)>0:
         latest_earnings = earnings.sort_values('rcept_dt', ascending=False).iloc[0]
         xml_text = dart.document(latest_earnings['rcept_no'])
@@ -265,15 +265,15 @@ if __name__ == "__main__":
     # 회사 기본정보 조회
 
     # Read annual report and summarize
-    comapny_business = read_annual_report(code, out_dir='./data/summary')
+    #comapny_business = read_annual_report(code, out_dir='./data/summary')
     #print(comapny_business.summary)
 
     # Read financial data and analyze
-    financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
+    #financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
     #print(financial_analysis)
 
     # Read earnings report
-    earnings_analysis = analyze_earnings(code, out_dir='./data/summary')
+    #earnings_analysis = analyze_earnings(code, out_dir='./data/summary')
     #print(earnings_analysis)
 
     # Read IR report

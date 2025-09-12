@@ -139,10 +139,10 @@ def analyze_earnings(code, out_dir='./data/summary'):
     prompt = f"""
     회사명: {company_info['corp_name']}
 
-    [컨센서스 추이]
+    [과거 컨센서스 추이]
     {consensus.drop_duplicates().to_markdown()}
     
-    [마지막 컨센서스]
+    [최근 컨센서스]
     {consensus.iloc[-1:].to_markdown()}
 
     [실적발표]
@@ -205,7 +205,7 @@ if __name__ == "__main__":
     #print(earnings_analysis)
 
     # Read IR report
-    ir_summary = read_ir_report(fncode, out_dir='./data/summary')
-    print(ir_summary.summary)
+    #ir_summary = read_ir_report(fncode, out_dir='./data/summary')
+    #print(ir_summary.summary)
 
     # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary)

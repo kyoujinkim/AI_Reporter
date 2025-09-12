@@ -437,7 +437,7 @@ def agent(state: ResearchState) -> ResearchState:
             """)
 
     # LLM에 판단을 맡기기
-    decision_message = llm.invoke([SystemMessage(content=prompt)] + last_messages)
+    #decision_message = llm.invoke([SystemMessage(content=prompt)] + last_messages)
 
     # test에서 interrupt 제외
     '''# LLM이 인간에게 질문해야 한다고 판단할 경우, interrupt 호출

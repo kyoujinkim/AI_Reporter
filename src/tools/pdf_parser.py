@@ -197,7 +197,7 @@ class PDFParser:
 
         first_page = min(page_numbers) + 1
         last_page = max(page_numbers) + 1
-        all_imgs = convert_from_path(pdf_path, dpi=self.dpi, first_page=first_page, last_page=last_page)
+        all_imgs = convert_from_path(pdf_path, dpi=self.dpi, first_page=first_page, last_page=last_page, poppler_path='C:/poppler/Library/bin')
 
         page_set = set(page_numbers)
         imgs = []

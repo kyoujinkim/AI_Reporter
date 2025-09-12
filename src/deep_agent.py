@@ -62,7 +62,7 @@ class ResearchState(TypedDict, total=False):
     financial_analysis: Any
     earnings_analysis: Any
     ir_summary: str
-    future_guidance: str
+    consensus_analysis: str
 
     summaries: Dict[str, str]
     research_plan: PlanFormat
@@ -145,7 +145,7 @@ def _context_builder(state: ResearchState) -> str:
         ("ir_summary", state.get("ir_summary")),
         ("financial_analysis", state.get("financial_analysis")),
         ("company_business", state.get("company_business")),
-        ("future_guidance", state.get("future_guidance")),
+        ("consensus_analysis", state.get("consensus_analysis")),
     ]:
         if text: 
             sanitized_text = _sanitize_text(text)
@@ -477,26 +477,19 @@ def synthesize(state: ResearchState) -> ResearchState:
         return {"messages": [AIMessage(content=f"Synthesis failed: {e}")]}
 
 class BandResult(BaseModel):
-    up_pct: List[float]   # [lo, hi]
-    down_pct: List[float] # [lo, hi] (음수)
+    sales_up_pct: List[float]   # [lo, hi]
+    sales_down_pct: List[float] # [lo, hi] (음수)
+    operating_profit_pct: List[float]     # [lo, hi]
+    operating_profit_down_pct: List[float]   # [lo, hi] (음수
+    net_income_up_pct: List[float]  # [lo, hi]
+    net_income_down_pct: List[float] # [lo, hi] (음수
+    thinking: Optional[str] = None  # 단계적 사유 (디버깅용)
 
-def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> BandResult:
+def derive_band_from_ir(ir_text: str, earnings_text: str, consensus_text: str) -> BandResult:
     """
     IR/가이던스 코멘트에서 LLM을 통해 단계적 사유로 시나리오 밴드(상승/하락 퍼센트)를 추론.
     반환: BandResult (up_pct/down_pct는 각각 [lo, hi] 리스트)
     """
-    prompt = [
-        SystemMessage(content=(
-            "당신은 금융 애널리스트입니다. IR/가이던스와 실적 요약을 바탕으로, 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드(퍼센트, 예: 0.05 = +5%)를 단계적으로 사유하여 추정하세요.\n"
-            "다음 단계를 반드시 따르세요:\n"
-            "1. IR/가이던스와 실적 요약에서 긍정적 요인과 부정적 요인을 모두 나열하세요.\n"
-            "2. 각 요인이 실적에 미칠 영향(방향: 상승/하락, 강도: 약함/보통/강함)을 추정하세요.\n"
-            "3. 모든 요인의 영향을 종합하여, 합리적인 낙관적(상승) 및 비관적(하락) 밴드(퍼센트 범위)를 산출하세요.\n"
-            "최종적으로 아래 JSON 형식으로만 결과를 출력하세요:\n"
-            "{\"up_pct\": [lo, hi], \"down_pct\": [lo, hi]}"
-        )),
-        HumanMessage(content=f"""IR/가이던스:\n{ir_text}\n\n실적 요약:\n{earnings_text}\n\n출력 형식:\n{{"up_pct": [lo, hi], "down_pct": [lo, hi]}}""")
-    ]
     try:
         client = get_openai_client()
         if not client:
@@ -504,7 +497,7 @@ def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> BandResult:
         
         # Create structured prompt for BandResult
         band_prompt = f"""
-        다음 IR/가이던스와 실적 요약을 바탕으로 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드를 추정하세요.
+        다음 IR/가이던스와 실적 요약을 바탕으로 기존 추정치를 바탕으로 합리적인 낙관적(상승) 및 비관적(하락) 시나리오 밴드를 추정하세요.
         
         단계:
         1. IR/가이던스와 실적 요약에서 긍정적 요인과 부정적 요인을 분석
@@ -516,6 +509,9 @@ def derive_band_from_ir(ir_text: str, earnings_text: str = "") -> BandResult:
         
         실적 요약:
         {earnings_text}
+        
+        기존 추정치:
+        {consensus_text}
         
         up_pct는 [최소%, 최대%] 상승 범위를, down_pct는 [최소%, 최대%] 하락 범위를 나타냅니다.
         """
@@ -573,8 +569,9 @@ def scenario_generator(state: ResearchState) -> ResearchState:
     if not llm:
         return {"messages": [AIMessage(content="LLM not available - skipping scenario generation")]}
         
-    earnings_summary = state.get("earnings_analysis", "")
+    earnings_analysis = state.get("earnings_analysis", "")
     ir_text = state.get("ir_summary", "")
+    consensus_analysis = state.get("consensus_analysis", "")
 
     schema_prompt = [
         SystemMessage(content="Extract forward (next quarter) estimates if present. Output JSON only."),
@@ -583,7 +580,7 @@ def scenario_generator(state: ResearchState) -> ResearchState:
         {{"quarter": "2025 Q3", "revenue": 5300, "eps": 2.10}}
         If missing, infer from closest hints; else output null fields.
         ---
-        {earnings_summary[:8000]}
+        {consensus_analysis[:8000]}
         """))
     ]
     base_msg = llm.invoke(schema_prompt)
@@ -592,7 +589,7 @@ def scenario_generator(state: ResearchState) -> ResearchState:
     except Exception:
         base_est = {"quarter": None, "revenue": None, "eps": None}
 
-    bands = derive_band_from_ir(ir_text, earnings_summary)
+    bands = derive_band_from_ir(ir_text, earnings_analysis, consensus_analysis)
     up_lo, up_hi = bands.up_pct
     dn_lo, dn_hi = bands.down_pct
 
@@ -802,7 +799,7 @@ if __name__ == "__main__":
     fa = read_md('data/summary/financial_analysis.md')
     ea = read_md('data/summary/earnings_analysis.md')
     ir = read_md('data/summary/ir_summary.md')
-    fg = read_md('data/summary/future_guidance_analysis.md')
+    ca = read_md('data/summary/consensus_analysis.md')
 
     try:
         app = build_graph()
@@ -812,7 +809,7 @@ if __name__ == "__main__":
             "financial_analysis": fa,
             "earnings_analysis": ea,
             "ir_summary": ir,
-            "future_guidance": fg,
+            "consensus_analysis": ca,
         }
         config = {"configurable": {"thread_id": "demo-thread-streamlined-earnings"}}
     except Exception as e:
@@ -820,7 +817,7 @@ if __name__ == "__main__":
         exit(1)
 
     print("Starting deep research agent workflow...")
-    print(f"Input summary lengths: CB={len(cb)}, FA={len(fa)}, EA={len(ea)}, IR={len(ir)}, FG={len(fg)}")
+    print(f"Input summary lengths: CB={len(cb)}, FA={len(fa)}, EA={len(ea)}, IR={len(ir)}, FG={len(ca)}")
     
     # Test PlanFormat validation
     print("Testing PlanFormat schema enforcement...")

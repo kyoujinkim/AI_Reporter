@@ -29,13 +29,13 @@ tableagent = Agent(
     api_key=ai_key,
     name="TableAgent",
     description="당신은 표를 분석하는 전문가입니다. 셀 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-    model="gpt-4.1-nano"
+    model="gpt-4.1-mini"
 )
 iragent = Agent(
     api_key=ai_key,
     name="IRAgent",
     description="당신은 기업의 IR 분석 전문가입니다. 사업보고서, 재무제표, 실적발표 등을 분석하고 요약하는 데 능숙합니다. 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-    model="gpt-4.1-nano"
+    model="gpt-4.1-mini"
 )
 
 company_info = dart.company(code)
@@ -189,7 +189,7 @@ def read_ir_report(fncode, out_dir='./data/summary'):
 
     return summarize
 
-def analyze_future_guidance(fncode, out_dir='./data/summary'):
+def analyze_consensus(fncode, out_dir='./data/summary'):
     """
     미래 가이던스 데이터를 읽고 분석하여 markdown 파일로 저장하는 함수
     
@@ -203,8 +203,9 @@ def analyze_future_guidance(fncode, out_dir='./data/summary'):
     try:
         # future sheet 읽기
         future_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='future', header=9)
-        future_data.index = future_data['Period'].astype(str) + ' ' + future_data['Name'] + '(백만원)'
-        future_data = future_data[future_data.columns[-1:]]
+        future_data.index = future_data['FPeriod']
+        future_data = future_data.pivot(columns='Name', values=future_data.columns[-1:])
+        future_data.columns = future_data.columns.droplevel(0) + '(백만원)'
         
         # 데이터가 비어있는지 확인
         if future_data.empty:
@@ -223,6 +224,7 @@ def analyze_future_guidance(fncode, out_dir='./data/summary'):
         {future_data.to_markdown()}
         
         분석 지침 - 수치 중심 분석:
+        미래 가이던스 데이터를 기준으로 향후 재무 성과에 대해 전망하시오.
         1. **핵심 수치 추출 및 나열**:
            - 매출액, 영업이익, 순이익, EPS 등 주요 지표별 구체적 수치 명시
            - 각 항목별 절대 금액(백만원) 및 비율(%) 정확히 표시
@@ -268,10 +270,9 @@ def analyze_future_guidance(fncode, out_dir='./data/summary'):
         )
         
         # 분석 결과를 markdown 파일로 저장
-        with open(f'{out_dir}/future_guidance_analysis.md', 'w', encoding='utf-8') as md_file:
+        with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(future_analysis)
-        
-        print(f"미래 가이던스 분석 완료: {out_dir}/future_guidance_analysis.md")
+
         return future_analysis
         
     except FileNotFoundError:
@@ -299,12 +300,11 @@ if __name__ == "__main__":
     #print(earnings_analysis)
 
     # Read IR report
-    #ir_summary = read_ir_report(fncode, out_dir='./data/summary')
+    ir_summary = read_ir_report(fncode, out_dir='./data/summary')
     #print(ir_summary.summary)
     
     # Read and analyze future guidance data
-    future_guidance_analysis = analyze_future_guidance(fncode, out_dir='./data/summary')
-    print("Future guidance analysis:")
+    future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
     print(future_guidance_analysis)
 
     # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary, future_guidance_analysis)

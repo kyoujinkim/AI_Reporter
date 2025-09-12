@@ -62,6 +62,7 @@ class ResearchState(TypedDict, total=False):
     financial_analysis: Any
     earnings_analysis: Any
     ir_summary: str
+    future_guidance: str
 
     summaries: Dict[str, str]
     research_plan: PlanFormat
@@ -144,6 +145,7 @@ def _context_builder(state: ResearchState) -> str:
         ("ir_summary", state.get("ir_summary")),
         ("financial_analysis", state.get("financial_analysis")),
         ("company_business", state.get("company_business")),
+        ("future_guidance", state.get("future_guidance")),
     ]:
         if text: 
             sanitized_text = _sanitize_text(text)
@@ -652,16 +654,18 @@ def compose_report(state: ResearchState) -> ResearchState:
               state.get("earnings_analysis", "-")]
     parts += ["\n## 3. Drivers via IR + Web\n",
               state.get("ir_summary", "-")]
+    parts += ["\n## 4. Future Guidance Analysis\n",
+              state.get("future_guidance", "-")]
 
     charts = state.get("charts", [])
     if charts:
-        parts.append("\n## 4. Visuals\n")
+        parts.append("\n## 5. Visuals\n")
         for c in charts:
             parts.append(f"![{c['caption']}]({c['path']})\n*{c['caption']}*\n")
 
     scen = state.get("scenarios", {})
     if scen:
-        parts.append("\n## 5. Forward Scenarios (Optimistic / Base / Pessimistic)\n")
+        parts.append("\n## 6. Forward Scenarios (Optimistic / Base / Pessimistic)\n")
         q = scen.get("base", {}).get("quarter", "Next Q")
 
         def row(label, rev, eps, asm):
@@ -688,11 +692,11 @@ def compose_report(state: ResearchState) -> ResearchState:
                          f"{pes_eps[0]}~{pes_eps[1]}" if pes_eps and None not in pes_eps else "-",
                          scen.get("pessimistic", {}).get("assumption", "-")))
 
-    parts += ["\n\n## 6. Supporting Context\n### 6.1 Financials (sanity checks)\n",
+    parts += ["\n\n## 7. Supporting Context\n### 7.1 Financials (sanity checks)\n",
               state.get("financial_analysis", "-"),
-              "\n### 6.2 Company & Business Overview\n",
+              "\n### 7.2 Company & Business Overview\n",
               state.get("company_business", "-")]
-    parts += ["\n## 7. Risks & Verification\n- FX/캘린더/Extra week/중단사업/회계 변경/일회성 영향 재검증\n"]
+    parts += ["\n## 8. Risks & Verification\n- FX/캘린더/Extra week/중단사업/회계 변경/일회성 영향 재검증\n"]
 
     return {"report_md": "\n".join(parts), "messages": [AIMessage(content="Report composed.")]}
 
@@ -798,6 +802,7 @@ if __name__ == "__main__":
     fa = read_md('data/summary/financial_analysis.md')
     ea = read_md('data/summary/earnings_analysis.md')
     ir = read_md('data/summary/ir_summary.md')
+    fg = read_md('data/summary/future_guidance_analysis.md')
 
     try:
         app = build_graph()
@@ -807,6 +812,7 @@ if __name__ == "__main__":
             "financial_analysis": fa,
             "earnings_analysis": ea,
             "ir_summary": ir,
+            "future_guidance": fg,
         }
         config = {"configurable": {"thread_id": "demo-thread-streamlined-earnings"}}
     except Exception as e:
@@ -814,7 +820,7 @@ if __name__ == "__main__":
         exit(1)
 
     print("Starting deep research agent workflow...")
-    print(f"Input summary lengths: CB={len(cb)}, FA={len(fa)}, EA={len(ea)}, IR={len(ir)}")
+    print(f"Input summary lengths: CB={len(cb)}, FA={len(fa)}, EA={len(ea)}, IR={len(ir)}, FG={len(fg)}")
     
     # Test PlanFormat validation
     print("Testing PlanFormat schema enforcement...")

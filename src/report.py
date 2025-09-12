@@ -189,6 +189,78 @@ def read_ir_report(fncode, out_dir='./data/summary'):
 
     return summarize
 
+def analyze_future_guidance(fncode, out_dir='./data/summary'):
+    """
+    미래 가이던스 데이터를 읽고 분석하여 markdown 파일로 저장하는 함수
+    
+    Args:
+        fncode: 회사 코드 (예: A381970)
+        out_dir: 출력 디렉토리
+    
+    Returns:
+        분석 결과 텍스트
+    """
+    try:
+        # future sheet 읽기
+        future_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='future')
+        
+        # 데이터가 비어있는지 확인
+        if future_data.empty:
+            print("Warning: Future sheet is empty")
+            return "미래 가이던스 데이터가 없습니다."
+        
+        # 데이터 전처리 - NaN 값 처리
+        future_data = future_data.dropna(how='all')  # 모든 값이 NaN인 행 제거
+        future_data = future_data.fillna('-')  # 남은 NaN을 '-'로 대체
+        
+        # 미래 가이던스 분석 프롬프트 생성
+        future_analysis_prompt = f"""
+        회사명: {company_info['corp_name']}
+        
+        [미래 가이던스 데이터]
+        {future_data.to_markdown(index=False)}
+        
+        분석 지침:
+        1. 제공된 미래 가이던스 데이터의 주요 지표 분석 (매출, 영업이익, 순이익 등)
+        2. 전년 대비 및 전분기 대비 성장률 계산 및 분석
+        3. 가이던스의 보수성/적극성 평가 (과거 실적 대비 달성 가능성)
+        4. 업종 특성 및 시장 환경을 고려한 가이던스 합리성 검토
+        5. 주요 가정 및 리스크 요인 식별
+        6. 투자자 관점에서의 가이던스 신뢰도 및 투자 의사결정 시사점
+        7. 분기별/연간 목표치의 계절성 및 달성 확률 분석
+        
+        출력 형식:
+        - 요약 → 세부 분석 → 핵심 수치 → 리스크 요인 순으로 작성
+        - 수치는 구체적으로 명시하고, 변화율은 % 단위로 표시
+        - 투자자가 쉽게 이해할 수 있도록 명확하고 간결하게 작성
+        """
+        
+        # AI 에이전트를 사용한 분석
+        future_analysis = tableagent.run(
+            prompt=future_analysis_prompt,
+            temperature=0.2
+        )
+        
+        # 분석 결과를 markdown 파일로 저장
+        with open(f'{out_dir}/future_guidance_analysis.md', 'w', encoding='utf-8') as md_file:
+            md_file.write(future_analysis)
+        
+        print(f"미래 가이던스 분석 완료: {out_dir}/future_guidance_analysis.md")
+        return future_analysis
+        
+    except FileNotFoundError:
+        error_msg = f"Error: Excel 파일을 찾을 수 없습니다: ./data/{fncode}_IS.xlsx"
+        print(error_msg)
+        return error_msg
+    except ValueError as e:
+        error_msg = f"Error: 'future' 시트를 찾을 수 없습니다: {e}"
+        print(error_msg)
+        return error_msg
+    except Exception as e:
+        error_msg = f"Error: 미래 가이던스 분석 중 오류 발생: {e}"
+        print(error_msg)
+        return error_msg
+
 if __name__ == "__main__":
     # 회사 기본정보 조회
 
@@ -207,5 +279,10 @@ if __name__ == "__main__":
     # Read IR report
     #ir_summary = read_ir_report(fncode, out_dir='./data/summary')
     #print(ir_summary.summary)
+    
+    # Read and analyze future guidance data
+    future_guidance_analysis = analyze_future_guidance(fncode, out_dir='./data/summary')
+    print("Future guidance analysis:")
+    print(future_guidance_analysis)
 
-    # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary)
+    # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary, future_guidance_analysis)

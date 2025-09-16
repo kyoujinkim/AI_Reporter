@@ -16,12 +16,27 @@ import configparser
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Union
+from dataclasses import dataclass
+from pydantic import BaseModel
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import seaborn as sns
 import pandas as pd
 
 from src.tools.agents import Agent
+
+
+class ChartSuggestion(BaseModel):
+    """차트 제안 Pydantic 모델"""
+    type: str  # bar, line, pie, scatter, area
+    title: str
+    data_source: str
+    description: str
+
+
+class ChartSuggestions(BaseModel):
+    """차트 제안 목록 Pydantic 모델"""
+    charts: List[ChartSuggestion]
 
 
 class AIReporter:
@@ -367,8 +382,8 @@ class AIReporter:
         return generated_charts
         
     def _get_chart_suggestions(self, report_content: str, data: Dict[str, str], 
-                              image_descriptions: Dict[str, str]) -> List[Dict]:
-        """보고서 내용을 바탕으로 차트 생성 제안 받기"""
+                              image_descriptions: Dict[str, str]) -> List[ChartSuggestion]:
+        """보고서 내용을 바탕으로 차트 생성 제안 받기 (Pydantic 강제)"""
         
         # 이미지 설명들을 요약
         image_summary = "\n".join([
@@ -397,44 +412,54 @@ class AIReporter:
         3. 트렌드 분석 차트
         4. 투자자 의사결정에 도움되는 차트
         
-        **출력 형식 (JSON):**
-        [
-            {
-                "type": "bar|line|pie|scatter|area",
-                "title": "차트 제목",
-                "data_source": "어떤 데이터를 사용할지",
-                "description": "차트가 보여주는 내용"
-            }
-        ]
-        
-        최대 3개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열 []을 반환하세요.
+        최대 3개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열을 반환하세요.
         """
         
         try:
-            response = self.chart_generator_agent.run(prompt, temperature=0.3)
+            # Pydantic response_format을 사용하여 구조화된 응답 강제
+            response = self.chart_generator_agent.run_with_response_format(
+                prompt=prompt,
+                response_format=ChartSuggestions,
+                temperature=0.3
+            )
             
-            # JSON 파싱 시도
-            import json
-            import re
-            
-            # JSON 부분만 추출
-            json_match = re.search(r'\[.*\]', response, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(0)
-                suggestions = json.loads(json_str)
-                return suggestions if isinstance(suggestions, list) else []
+            # 응답이 ChartSuggestions 객체인 경우
+            if hasattr(response, 'charts'):
+                return response.charts[:3]  # 최대 3개
             else:
                 return []
                 
         except Exception as e:
             print(f"Warning: 차트 제안 생성 중 오류 발생: {e}")
-            return []
+            # 기존 JSON 파싱 방식으로 폴백
+            try:
+                fallback_response = self.chart_generator_agent.run(prompt, temperature=0.3)
+                import json
+                import re
+                
+                # JSON 부분만 추출
+                json_match = re.search(r'\[.*\]', fallback_response, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                    suggestions_data = json.loads(json_str)
+                    
+                    # Dict 리스트를 ChartSuggestion 객체로 변환
+                    suggestions = []
+                    for item in suggestions_data:
+                        if isinstance(item, dict) and all(key in item for key in ['type', 'title', 'data_source', 'description']):
+                            suggestions.append(ChartSuggestion(**item))
+                    return suggestions[:3]
+                else:
+                    return []
+            except Exception as fallback_error:
+                print(f"Warning: 폴백 차트 제안도 실패: {fallback_error}")
+                return []
             
-    def _create_chart_from_suggestion(self, suggestion: Dict, data: Dict[str, str]) -> Optional[str]:
+    def _create_chart_from_suggestion(self, suggestion: ChartSuggestion, data: Dict[str, str]) -> Optional[str]:
         """제안된 차트 생성"""
-        chart_type = suggestion.get('type', 'bar')
-        title = suggestion.get('title', '차트')
-        data_source = suggestion.get('data_source', '')
+        chart_type = suggestion.type
+        title = suggestion.title
+        data_source = suggestion.data_source
         
         # 데이터 소스에 따라 실제 데이터 생성
         chart_data = self._extract_chart_data(data_source, data)

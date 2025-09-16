@@ -93,6 +93,15 @@ class AIReporter:
             model="gpt-4.1-mini"
         )
         
+        self.chart_generator_agent = Agent(
+            api_key=self.api_key,
+            name="ChartGenerator",
+            description="""당신은 보고서 데이터 시각화 전문가입니다.
+            보고서 내용과 사용된 데이터, 이미지를 분석하여 추가적인 차트가 필요한지 판단합니다.
+            투자자에게 유용한 차트 유형과 데이터를 추천하며, 차트별 제목과 설명을 제공합니다.""",
+            model="gpt-4.1-mini"
+        )
+        
     def _setup_korean_font(self):
         """한글 폰트 설정"""
         plt.rcParams['font.family'] = ['Malgun Gothic', 'DejaVu Sans']
@@ -335,6 +344,220 @@ class AIReporter:
         
         return str(chart_path)
         
+    def _generate_charts_from_report(self, report_content: str, data: Dict[str, str], 
+                                    image_descriptions: Dict[str, str]) -> List[str]:
+        """보고서 내용과 데이터를 기반으로 차트들 생성"""
+        # 차트 생성 제안 요청
+        chart_suggestions = self._get_chart_suggestions(report_content, data, image_descriptions)
+        
+        if not chart_suggestions:
+            return []
+            
+        generated_charts = []
+        
+        for suggestion in chart_suggestions:
+            try:
+                chart_path = self._create_chart_from_suggestion(suggestion, data)
+                if chart_path:
+                    generated_charts.append(chart_path)
+            except Exception as e:
+                print(f"Warning: 차트 생성 중 오류 발생: {e}")
+                continue
+                
+        return generated_charts
+        
+    def _get_chart_suggestions(self, report_content: str, data: Dict[str, str], 
+                              image_descriptions: Dict[str, str]) -> List[Dict]:
+        """보고서 내용을 바탕으로 차트 생성 제안 받기"""
+        
+        # 이미지 설명들을 요약
+        image_summary = "\n".join([
+            f"- {img_id}: {desc.split('## 1) 핵심 요약')[1].split('## 2)')[0] if '## 1) 핵심 요약' in desc else desc[:200]}" 
+            for img_id, desc in image_descriptions.items()
+        ])
+        
+        prompt = f"""
+        다음 보고서 내용과 데이터를 분석하여 투자자에게 유용한 차트 생성을 제안하세요:
+        
+        **보고서 내용:**
+        {report_content}
+        
+        **사용된 이미지 요약:**
+        {image_summary}
+        
+        **사용 가능한 데이터:**
+        - 기업 사업 현황: {data.get('company_business', '없음')[:100]}...
+        - 실적 분석: {data.get('earnings_analysis', '없음')[:100]}...
+        - 재무 분석: {data.get('financial_analysis', '없음')[:100]}...
+        - 컨센서스 분석: {data.get('consensus_analysis', '없음')[:100]}...
+        
+        **차트 제안 기준:**
+        1. 보고서에서 언급된 수치 데이터 시각화
+        2. 시나리오 비교 차트
+        3. 트렌드 분석 차트
+        4. 투자자 의사결정에 도움되는 차트
+        
+        **출력 형식 (JSON):**
+        [
+            {
+                "type": "bar|line|pie|scatter|area",
+                "title": "차트 제목",
+                "data_source": "어떤 데이터를 사용할지",
+                "description": "차트가 보여주는 내용"
+            }
+        ]
+        
+        최대 3개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열 []을 반환하세요.
+        """
+        
+        try:
+            response = self.chart_generator_agent.run(prompt, temperature=0.3)
+            
+            # JSON 파싱 시도
+            import json
+            import re
+            
+            # JSON 부분만 추출
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                suggestions = json.loads(json_str)
+                return suggestions if isinstance(suggestions, list) else []
+            else:
+                return []
+                
+        except Exception as e:
+            print(f"Warning: 차트 제안 생성 중 오류 발생: {e}")
+            return []
+            
+    def _create_chart_from_suggestion(self, suggestion: Dict, data: Dict[str, str]) -> Optional[str]:
+        """제안된 차트 생성"""
+        chart_type = suggestion.get('type', 'bar')
+        title = suggestion.get('title', '차트')
+        data_source = suggestion.get('data_source', '')
+        
+        # 데이터 소스에 따라 실제 데이터 생성
+        chart_data = self._extract_chart_data(data_source, data)
+        
+        if not chart_data:
+            return None
+            
+        # 파일명 생성 (한글 제거)
+        import re
+        filename = re.sub(r'[^a-zA-Z0-9_]', '_', title.lower())[:20]
+        
+        return self.make_chart(
+            chart_type=chart_type,
+            data=chart_data,
+            title=title,
+            filename=f"generated_{filename}"
+        )
+        
+    def _extract_chart_data(self, data_source: str, data: Dict[str, str]) -> Optional[Dict]:
+        """데이터 소스 설명을 바탕으로 실제 차트 데이터 추출"""
+        import re
+        
+        try:
+            # 시나리오 데이터 추출
+            if '시나리오' in data_source.lower() or 'scenario' in data_source.lower():
+                consensus_data = data.get('consensus_analysis', '')
+                scenario_data = {}
+                
+                # 컨센서스 데이터에서 수치 추출
+                if consensus_data:
+                    # 매출액 추출 (백만원 단위)
+                    revenue_match = re.search(r'매출.*?(\d+,?\d*)\s*백만원', consensus_data, re.IGNORECASE)
+                    if revenue_match:
+                        base_revenue = int(revenue_match.group(1).replace(',', ''))
+                        scenario_data = {
+                            '낙관적': base_revenue * 1.08,  # 8% 상향
+                            '중립적': base_revenue,
+                            '비관적': base_revenue * 0.92   # 8% 하향
+                        }
+                
+                return scenario_data if scenario_data else None
+                
+            # 분기별 데이터 추출  
+            elif '분기' in data_source.lower() or 'quarter' in data_source.lower():
+                financial_data = data.get('financial_analysis', '')
+                quarterly_data = {}
+                
+                if financial_data:
+                    # 분기별 매출 패턴 찾기
+                    quarters = re.findall(r'([Q1-4].*?)(\d+,?\d*)\s*백만원', financial_data, re.IGNORECASE)
+                    for quarter, value in quarters:
+                        clean_quarter = re.sub(r'[^Q0-9]', '', quarter)[:2]
+                        quarterly_data[clean_quarter] = int(value.replace(',', ''))
+                
+                return quarterly_data if quarterly_data else None
+                
+            # 매출 추이 데이터 추출
+            elif '매출' in data_source.lower() or 'revenue' in data_source.lower():
+                financial_data = data.get('financial_analysis', '')
+                revenue_data = {}
+                
+                if financial_data:
+                    # 연도별 매출 찾기
+                    years = re.findall(r'(20\d{2}).*?매출.*?(\d+,?\d*)\s*(?:백만원|조원)', financial_data, re.IGNORECASE)
+                    for year, value in years:
+                        # 조원 단위면 백만원으로 변환
+                        if '조원' in financial_data:
+                            revenue_data[year] = int(float(value.replace(',', '')) * 1000000)
+                        else:
+                            revenue_data[year] = int(value.replace(',', ''))
+                
+                return revenue_data if revenue_data else None
+                
+            # 영업이익 데이터 추출
+            elif '영업이익' in data_source.lower() or 'operating' in data_source.lower():
+                financial_data = data.get('financial_analysis', '')
+                operating_data = {}
+                
+                if financial_data:
+                    # 연도별 영업이익 찾기
+                    profits = re.findall(r'(20\d{2}).*?영업이익.*?(\d+,?\d*)\s*백만원', financial_data, re.IGNORECASE)
+                    for year, value in profits:
+                        operating_data[year] = int(value.replace(',', ''))
+                
+                return operating_data if operating_data else None
+                
+            # IR 이미지 데이터 기반 추출
+            elif '이미지' in data_source.lower() or 'image' in data_source.lower():
+                image_descriptions = data.get('image_descriptions', {})
+                chart_data = {}
+                
+                # 이미지 설명에서 수치 데이터 추출
+                for img_id, desc in image_descriptions.items():
+                    if '매출' in desc or '이익' in desc:
+                        # 표 형태의 데이터 찾기
+                        table_matches = re.findall(r'\|\s*([^|]+)\s*\|\s*(\d+,?\d*)\s*\|', desc)
+                        for item, value in table_matches:
+                            if item.strip() and value.strip():
+                                chart_data[item.strip()[:10]] = int(value.replace(',', ''))
+                
+                return chart_data if chart_data else None
+                
+            # 기본: 이익률이나 성장률 데이터
+            else:
+                consensus_data = data.get('consensus_analysis', '')
+                financial_data = data.get('financial_analysis', '')
+                combined_data = consensus_data + financial_data
+                
+                # 성장률 패턴 찾기
+                growth_rates = re.findall(r'(전년.*?|전분기.*?)(\d+\.?\d*)\s*%', combined_data, re.IGNORECASE)
+                if growth_rates:
+                    growth_data = {}
+                    for period, rate in growth_rates[:4]:  # 최대 4개
+                        clean_period = period.strip()[:8]
+                        growth_data[clean_period] = float(rate)
+                    return growth_data
+                
+                return None
+                
+        except Exception as e:
+            print(f"Warning: 데이터 추출 중 오류 발생: {e}")
+            return None
+        
     def generate_report(self, analysis_result: str, scenarios: Dict[str, str], 
                        charts: List[str] = None, data: Dict[str, str] = None) -> str:
         """최종 보고서 생성 (이미지 포함)"""
@@ -384,7 +607,7 @@ class AIReporter:
         
     def _integrate_images_into_report(self, report_content: str, 
                                      image_descriptions: Dict[str, str]) -> str:
-        """보고서에 관련 이미지들 통합"""
+        """보고서 결론 섹션에만 관련 이미지들 통합"""
         if not image_descriptions:
             return report_content
             
@@ -397,27 +620,33 @@ class AIReporter:
             section_title = section_lines[0] if section_lines else f"섹션 {i}"
             section_text = '\n'.join(section_lines)
             
-            # 각 섹션에 적합한 이미지 선택
-            relevant_images = self._select_relevant_images(
-                section_text, section_title, image_descriptions
-            )
-            
             # 섹션 추가
             integrated_content += f"\n## {section_text}"
             
-            # 관련 이미지가 있으면 섹션 끝에 추가
-            if relevant_images:
-                integrated_content += "\n\n### 관련 자료\n\n"
-                for img_id in relevant_images:
-                    img_path = f"./src/data/summary/images/{img_id}.png"
-                    integrated_content += f"![{img_id}]({img_path})\n\n"
-                    # 이미지 설명도 간단히 추가
-                    desc_lines = image_descriptions[img_id].split('\n')
-                    title_line = next((line for line in desc_lines if '핵심 요약' in line), None)
-                    if title_line:
-                        idx = desc_lines.index(title_line)
-                        if idx + 1 < len(desc_lines):
-                            integrated_content += f"*{desc_lines[idx + 1].strip()}*\n\n"
+            # 마지막 섹션(결론)에만 이미지 추가
+            is_conclusion = any(keyword in section_title.lower() for keyword in 
+                              ['결론', 'conclusion', '마무리', '종합'])
+            
+            if is_conclusion or i == len(sections) - 1:  # 결론 섹션이거나 마지막 섹션인 경우
+                # 전체 보고서 내용을 기준으로 이미지 선택
+                full_report_text = report_content
+                relevant_images = self._select_relevant_images(
+                    full_report_text, "종합 분석", image_descriptions
+                )
+                
+                # 관련 이미지가 있으면 섹션 끝에 추가
+                if relevant_images:
+                    integrated_content += "\n\n### 참고 자료\n\n"
+                    for img_id in relevant_images:
+                        img_path = f"./src/data/summary/images/{img_id}.png"
+                        integrated_content += f"![{img_id}]({img_path})\n\n"
+                        # 이미지 설명도 간단히 추가
+                        desc_lines = image_descriptions[img_id].split('\n')
+                        title_line = next((line for line in desc_lines if '핵심 요약' in line), None)
+                        if title_line:
+                            idx = desc_lines.index(title_line)
+                            if idx + 1 < len(desc_lines):
+                                integrated_content += f"*{desc_lines[idx + 1].strip()}*\n\n"
         
         return integrated_content
         
@@ -450,28 +679,25 @@ class AIReporter:
         print("🎯 시나리오 생성...")
         scenarios = self.generate_scenarios(data, analysis_result)
         
-        # 4. 차트 생성 (예시)
-        print("📈 차트 생성...")
-        charts = []
-        
-        # 예시 차트 데이터 (실제로는 데이터에서 추출)
-        sample_data = {
-            '1Q': 100, '2Q': 120, '3Q': 115, '4Q': 130
-        }
-        
-        chart_path = self.make_chart(
-            chart_type='bar',
-            data=sample_data,
-            title='분기별 실적 추이',
-            filename='quarterly_performance'
-        )
-        charts.append(chart_path)
-        
-        # 5. 최종 보고서 생성
+        # 4. 최종 보고서 생성
         print("📝 보고서 생성...")
-        report = self.generate_report(analysis_result, scenarios, charts, data)
+        report = self.generate_report(analysis_result, scenarios, None, data)
         
-        # 6. 보고서 저장
+        # 5. 보고서 기반 차트 생성
+        print("📈 보고서 기반 차트 생성...")
+        charts = self._generate_charts_from_report(
+            report, data, data.get('image_descriptions', {})
+        )
+        
+        # 6. 차트가 생성되었다면 보고서에 추가
+        if charts:
+            print(f"✅ {len(charts)}개의 차트가 생성되었습니다.")
+            chart_section = "\n\n## 추가 차트 분석\n\n"
+            for i, chart_path in enumerate(charts, 1):
+                chart_section += f"![생성된 차트 {i}]({chart_path})\n\n"
+            report += chart_section
+        
+        # 7. 최종 보고서 저장
         report_path = self.save_report(report)
         
         print(f"✅ 분석 완료! 보고서 저장: {report_path}")

@@ -355,7 +355,7 @@ class AIReporter:
             
         # CSV 파일 저장
         try:
-            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            with open(csv_path, 'w', newline='', encoding='CP949') as csvfile:
                 writer = csv.writer(csvfile)
                 
                 # 헤더 작성
@@ -607,7 +607,7 @@ class AIReporter:
             
         # 파일명 생성 (한글 제거)
         import re
-        filename = re.sub(r'[^a-zA-Z0-9_]', '_', title.lower())[:20]
+        filename = re.sub(r'[^a-zA-Z0-9가-힣_]', '_', title.lower())[:20]
         
         # CSV 파일로 차트 데이터 저장
         self._save_chart_data_to_csv(chart_data, title, suggestion.description)

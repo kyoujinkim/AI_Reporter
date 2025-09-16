@@ -75,7 +75,7 @@ def _load_domain_lists():
     try:
         # config 디렉토리의 절대 경로 계산
         current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_dir = os.path.join(current_dir, 'config')
+        config_dir = os.path.join(current_dir, 'src/data/config')
         
         include_domains_path = os.path.join(config_dir, 'include_domains.json')
         exclude_domains_path = os.path.join(config_dir, 'exclude_domains.json')
@@ -380,7 +380,7 @@ def _filter_news_relevance(news_articles: list, company_name: str, industry: str
 
             **대상 기업**: {company_name}
             **산업 분야**: {industry}
-            **사업 요약**: {business_summary[:500]}
+            **사업 요약**: {business_summary[:200]}
 
             **뉴스 기사**:
             {article}
@@ -449,7 +449,7 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
 
     # 기업 관련 뉴스 검색
     try:
-        company_query = f"{company_name} 실적 earnings financial performance recent news"
+        company_query = f"{company_name} 실적 earnings recent news"
         company_response = requests.post(
             "https://api.tavily.com/search",
             json={
@@ -497,10 +497,7 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
 
     # 산업 관련 뉴스 검색
     try:
-        if industry:
-            industry_query = f"{industry} industry trends market outlook korea recent news"
-        else:
-            industry_query = f"{company_name} sector industry market news"
+        industry_query = f"{industry} industry trends market outlook recent news"
 
         industry_response = requests.post(
             "https://api.tavily.com/search",

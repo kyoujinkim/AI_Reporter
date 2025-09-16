@@ -32,6 +32,7 @@ class ChartSuggestion(BaseModel):
     title: str
     data_source: str
     description: str
+    chart_data: Dict[str, Union[int, float]]  # 실제 차트 데이터
 
 
 class ChartSuggestions(BaseModel):
@@ -383,7 +384,7 @@ class AIReporter:
         
     def _get_chart_suggestions(self, report_content: str, data: Dict[str, str], 
                               image_descriptions: Dict[str, str]) -> List[ChartSuggestion]:
-        """보고서 내용을 바탕으로 차트 생성 제안 받기 (Pydantic 강제)"""
+        """보고서 내용을 바탕으로 차트 생성 제안 받기 (LLM이 텍스트에서 직접 수치 추론)"""
         
         # 이미지 설명들을 요약
         image_summary = "\n".join([
@@ -392,27 +393,53 @@ class AIReporter:
         ])
         
         prompt = f"""
-        다음 보고서 내용과 데이터를 분석하여 투자자에게 유용한 차트 생성을 제안하세요:
+        다음 보고서와 원본 데이터 텍스트를 종합적으로 분석하여 투자자에게 유용한 차트들을 제안하세요.
+        텍스트에서 언급된 수치들을 직접 분석하고 추론하여 차트 데이터를 생성해야 합니다.
         
-        **보고서 내용:**
+        **생성된 보고서 내용:**
         {report_content}
         
-        **사용된 이미지 요약:**
+        **원본 데이터 소스들:**
+        
+        **기업 사업 현황:**
+        {data.get('company_business', '데이터 없음')}
+        
+        **실적 분석:**
+        {data.get('earnings_analysis', '데이터 없음')}
+        
+        **재무 분석:**
+        {data.get('financial_analysis', '데이터 없음')}
+        
+        **IR 요약:**
+        {data.get('ir_summary', '데이터 없음')}
+        
+        **컨센서스 분석:**
+        {data.get('consensus_analysis', '데이터 없음')}
+        
+        **이미지 설명:**
         {image_summary}
         
-        **사용 가능한 데이터:**
-        - 기업 사업 현황: {data.get('company_business', '없음')[:1000]}...
-        - 실적 분석: {data.get('earnings_analysis', '없음')[:1000]}...
-        - 재무 분석: {data.get('financial_analysis', '없음')[:1000]}...
-        - 컨센서스 분석: {data.get('consensus_analysis', '없음')[:1000]}...
+        **차트 생성 지침:**
+        1. 위 텍스트들에서 언급된 모든 수치 데이터를 종합적으로 분석
+        2. 매출, 영업이익, 순이익, 성장률, 시장점유율 등 구체적 수치 추출
+        3. 시나리오별 전망, 분기별/연도별 추이, 예측 vs 실제 비교 등 의미 있는 차트 생성
+        4. 텍스트에서 직접 언급되지 않은 수치라도 문맥상 합리적으로 추론하여 보완
+        5. 차트 타입은 데이터 성격에 맞게 선택 (bar: 비교, line: 추이, pie: 구성비)
         
-        **차트 제안 기준:**
-        1. 보고서에서 언급된 수치 데이터 시각화
-        2. 시나리오 비교 차트
-        3. 트렌드 분석 차트
-        4. 투자자 의사결정에 도움되는 차트
+        **차트 데이터 생성 원칙:**
+        - 텍스트에 명시된 수치는 정확히 반영
+        - 누락된 수치는 언급된 다른 수치들과의 관계성을 고려하여 합리적으로 추론
+        - 시나리오 분석에서 언급된 상향/하향 조정 비율을 실제 수치에 적용
+        - 성장률, 비교 데이터 등을 활용하여 시계열 데이터 구성
+        - 모든 수치는 투자자 관점에서 의미 있고 검증 가능해야 함
         
-        보고서의 내용을 뒷받침할 여러개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열을 반환하세요.
+        **출력 예시:**
+        - 시나리오 비교: 컨센서스와 각 시나리오에서 언급된 조정 내용을 반영
+        - 실적 추이: 과거~현재~미래 연결되는 시계열 데이터
+        - 예측 vs 실제: 보고서에서 언급된 서프라이즈 수치들
+        - 부문별 성과: 사업부문별 매출/이익 분해
+        
+        텍스트에서 의미 있는 차트를 만들 수 있는 충분한 정보가 없다면 빈 배열을 반환하세요.
         """
         
         try:
@@ -420,7 +447,7 @@ class AIReporter:
             response = self.chart_generator_agent.run_with_structured_format(
                 prompt=prompt,
                 response_format=ChartSuggestions,
-                temperature=0.3
+                temperature=0.2
             )
             
             # 응답이 ChartSuggestions 객체인 경우
@@ -433,14 +460,48 @@ class AIReporter:
             print(f"Warning: 차트 제안 중 오류 발생: {e}")
             return []
             
+    def _get_available_data_summary(self, data: Dict[str, str]) -> str:
+        """사용 가능한 실제 데이터 요약 정보 생성"""
+        summary_parts = []
+        
+        # 컨센서스 데이터에서 수치 추출
+        consensus_data = data.get('consensus_analysis', '')
+        if consensus_data:
+            import re
+            revenues = re.findall(r'매출.*?(\d+,?\d*)\s*(?:백만원|조원)', consensus_data, re.IGNORECASE)
+            profits = re.findall(r'(?:영업이익|순이익).*?(\d+,?\d*)\s*백만원', consensus_data, re.IGNORECASE)
+            if revenues:
+                summary_parts.append(f"- 컨센서스 매출: {revenues[0]} (백만원 단위)")
+            if profits:
+                summary_parts.append(f"- 컨센서스 이익: {profits[0]} (백만원 단위)")
+        
+        # 재무 데이터에서 분기별/연도별 데이터 추출
+        financial_data = data.get('financial_analysis', '')
+        if financial_data:
+            import re
+            quarters = re.findall(r'([Q1-4]\d{4}).*?(\d+,?\d*)\s*백만원', financial_data)
+            years = re.findall(r'(20\d{2}).*?매출.*?(\d+,?\d*)\s*(?:백만원|조원)', financial_data)
+            if quarters:
+                summary_parts.append(f"- 분기별 실적: {len(quarters)}개 분기 데이터 확인됨")
+            if years:
+                summary_parts.append(f"- 연도별 매출: {len(years)}개 연도 데이터 확인됨")
+        
+        # 실적 비교 데이터
+        earnings_data = data.get('earnings_analysis', '')
+        if earnings_data:
+            if '예측' in earnings_data and '실제' in earnings_data:
+                summary_parts.append("- 예측 vs 실제 비교 데이터 확인됨")
+        
+        if not summary_parts:
+            summary_parts.append("- 구조화된 수치 데이터를 찾을 수 없음")
+            
+        return "\n".join(summary_parts)
+            
     def _create_chart_from_suggestion(self, suggestion: ChartSuggestion, data: Dict[str, str]) -> Optional[str]:
-        """제안된 차트 생성"""
+        """제안된 차트 생성 (Pydantic 모델에서 직접 데이터 사용)"""
         chart_type = suggestion.type
         title = suggestion.title
-        data_source = suggestion.data_source
-        
-        # 데이터 소스에 따라 실제 데이터 생성
-        chart_data = self._extract_chart_data(data_source, data)
+        chart_data = suggestion.chart_data  # Pydantic 모델에서 직접 가져옴
         
         if not chart_data:
             return None

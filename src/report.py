@@ -1,6 +1,7 @@
 import configparser
 from datetime import timedelta, datetime
 from glob import glob
+from typing import Dict
 
 import pandas as pd
 import requests
@@ -20,6 +21,7 @@ config = configparser.ConfigParser()
 config.read(config_file)
 dart_key = config.get("dart", "API_KEY")
 ai_key = config.get("openai", "API_KEY")
+tavily_api_key = config.get("tavily", "API_KEY_NH")
 
 dart = OpenDartReader(dart_key)
 summarizer = Summarizer(apikey=ai_key, chunk_tokens=3000, target_summary_tokens=1000)
@@ -35,6 +37,15 @@ iragent = Agent(
     api_key=ai_key,
     name="IRAgent",
     description="당신은 기업의 IR 분석 전문가입니다. 사업보고서, 재무제표, 실적발표 등을 분석하고 요약하는 데 능숙합니다. 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
+    model="gpt-4.1-mini"
+)
+
+news_analysis_agent = Agent(
+    api_key=ai_key,
+    name="NewsAnalysisAgent",
+    description="""당신은 뉴스 분석 전문가입니다.
+    기업 관련 뉴스와 산업 뉴스를 분석하여 실적 분석에 도움이 되는 인사이트를 도출합니다.
+    시장 동향, 경쟁사 현황, 산업 트렌드 등을 파악하여 기업의 실적과 전망에 미치는 영향을 분석합니다.""",
     model="gpt-4.1-mini"
 )
 
@@ -284,12 +295,159 @@ def analyze_consensus(fncode, out_dir='./data/summary'):
         print(error_msg)
         return error_msg
 
+def analyze_news(company_name: str, industry: str = "") -> str:
+    """뉴스 검색 및 분석 통합 함수"""
+    news_data = _search_news_with_tavily(company_name, industry)
+    analysis = _analyze_news_impact(news_data, company_info)
+
+    # Save news analysis to markdown file
+    with open(f'./data/summary/news_analysis.md', 'w', encoding='utf-8') as md_file:
+        md_file.write(analysis)
+
+    return analysis
+
+def _search_news_with_tavily(company_name: str, industry: str = "") -> Dict[str, str]:
+    """Tavily API를 사용한 뉴스 검색"""
+    if not tavily_api_key:
+        return {"company_news": "뉴스 검색 불가: Tavily API 키 없음", "industry_news": "뉴스 검색 불가: Tavily API 키 없음"}
+
+    news_data = {}
+
+    # 기업 관련 뉴스 검색
+    try:
+        company_query = f"{company_name} 실적 earnings financial performance recent news"
+        company_response = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": tavily_api_key,
+                "query": company_query,
+                "search_depth": "basic",
+                "include_answer": True,
+                "include_raw_content": False,
+                "max_results": 5,
+                "include_domains": ["naver.com", "daum.net", "yonhapnews.co.kr", "einfomax.co.kr", "mk.co.kr",
+                                    "sedaily.com"]
+            },
+            timeout=10
+        )
+
+        if company_response.status_code == 200:
+            company_data = company_response.json()
+            # 검색 결과를 텍스트로 정리
+            company_articles = []
+            for result in company_data.get('results', []):
+                company_articles.append(
+                    f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:300]}...\n출처: {result.get('url', 'N/A')}")
+
+            news_data['company_news'] = "\n\n".join(
+                company_articles) if company_articles else "기업 관련 뉴스를 찾을 수 없습니다."
+        else:
+            news_data['company_news'] = "기업 뉴스 검색 실패"
+
+    except Exception as e:
+        print(f"Warning: 기업 뉴스 검색 중 오류 발생: {e}")
+        news_data['company_news'] = "기업 뉴스 검색 중 오류 발생"
+
+    # 산업 관련 뉴스 검색
+    try:
+        if industry:
+            industry_query = f"{industry} industry trends market outlook korea recent news"
+        else:
+            industry_query = f"{company_name} sector industry market news"
+
+        industry_response = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": tavily_api_key,
+                "query": industry_query,
+                "search_depth": "basic",
+                "include_answer": True,
+                "include_raw_content": False,
+                "max_results": 5,
+                "include_domains": ["naver.com", "daum.net", "yonhapnews.co.kr", "einfomax.co.kr", "mk.co.kr",
+                                    "sedaily.com"]
+            },
+            timeout=10
+        )
+
+        if industry_response.status_code == 200:
+            industry_data = industry_response.json()
+            # 검색 결과를 텍스트로 정리
+            industry_articles = []
+            for result in industry_data.get('results', []):
+                industry_articles.append(
+                    f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:300]}...\n출처: {result.get('url', 'N/A')}")
+
+            news_data['industry_news'] = "\n\n".join(
+                industry_articles) if industry_articles else "산업 관련 뉴스를 찾을 수 없습니다."
+        else:
+            news_data['industry_news'] = "산업 뉴스 검색 실패"
+
+    except Exception as e:
+        print(f"Warning: 산업 뉴스 검색 중 오류 발생: {e}")
+        news_data['industry_news'] = "산업 뉴스 검색 중 오류 발생"
+
+    return news_data
+
+def _analyze_news_impact(news_data: Dict[str, str], data: Dict[str, str]) -> str:
+    """뉴스 분석을 통한 실적 영향 평가"""
+    if not news_data.get('company_news') and not news_data.get('industry_news'):
+        return "뉴스 데이터가 없어 분석을 수행할 수 없습니다."
+
+    prompt = f"""
+    다음 뉴스 정보를 분석하여 기업의 실적과 전망에 미치는 영향을 평가하세요:
+
+    **기업 관련 뉴스:**
+    {news_data.get('company_news', '없음')}
+
+    **산업/시장 뉴스:**
+    {news_data.get('industry_news', '없음')}
+
+    **기업 기본 정보 (참고용):**
+    {data.get('company_business', '없음')[:500]}
+
+    **분석 요청사항:**
+    1. 뉴스에서 발견된 주요 이슈들이 기업 실적에 미치는 긍정적/부정적 영향
+    2. 시장 및 산업 트렌드가 기업 전망에 주는 시사점
+    3. 뉴스 기반 리스크 요인 및 기회 요인 식별
+    4. 향후 실적 전망에 반영해야 할 외부 요인들
+
+    **출력 형식:**
+    ## 뉴스 기반 시장 분석
+
+    ### 1. 주요 뉴스 이슈 분석
+    - **긍정적 요인**: [구체적 설명]
+    - **부정적 요인**: [구체적 설명]
+
+    ### 2. 산업 동향 및 시장 환경
+    [시장 트렌드와 기업에 미치는 영향]
+
+    ### 3. 리스크 및 기회 요인
+    - **기회 요인**: [구체적 설명]
+    - **리스크 요인**: [구체적 설명]
+
+    ### 4. 실적 전망에 대한 시사점
+    [뉴스 기반 전망 조정 필요성]
+    """
+
+    try:
+        return news_analysis_agent.run(prompt, temperature=0.2)
+    except Exception as e:
+        print(f"Warning: 뉴스 분석 중 오류 발생: {e}")
+        return "뉴스 분석 중 오류가 발생했습니다."
+
 if __name__ == "__main__":
     # 회사 기본정보 조회
+    company_name = company_info['stock_name']
+    industry = "직영 중고차 판매 및 매입 플랫폼"
 
     # Read annual report and summarize
     #comapny_business = read_annual_report(code, out_dir='./data/summary')
     #print(comapny_business.summary)
+    #read from md
+    with open('./data/summary/company_business.md', 'r', encoding='utf-8') as f:
+        company_business = f.read()
+    a = 1
 
     # Read financial data and analyze
     #financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
@@ -300,11 +458,14 @@ if __name__ == "__main__":
     #print(earnings_analysis)
 
     # Read IR report
-    ir_summary = read_ir_report(fncode, out_dir='./data/summary')
+    #ir_summary = read_ir_report(fncode, out_dir='./data/summary')
     #print(ir_summary.summary)
     
     # Read and analyze future guidance data
-    future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
-    print(future_guidance_analysis)
+    #future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
+    #print(future_guidance_analysis)
+
+    # Search News from Tavily
+    news_analysis = analyze_news(company_name, industry)
 
     # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary, future_guidance_analysis)

@@ -80,12 +80,6 @@ class AIReporter:
         config = configparser.ConfigParser()
         config.read(self.config_path, encoding='utf-8')
         self.api_key = config.get("openai", "API_KEY")
-        # Tavily API 키 로드 (선택적)
-        try:
-            self.tavily_api_key = config.get("tavily", "API_KEY")
-        except:
-            self.tavily_api_key = None
-            print("Warning: Tavily API 키를 찾을 수 없습니다. 뉴스 검색 기능이 비활성화됩니다.")
         
     def _initialize_agents(self):
         """AI 에이전트들 초기화"""
@@ -134,15 +128,6 @@ class AIReporter:
             model="gpt-4.1-mini"
         )
         
-        self.news_analysis_agent = Agent(
-            api_key=self.api_key,
-            name="NewsAnalysisAgent",
-            description="""당신은 뉴스 분석 전문가입니다.
-            기업 관련 뉴스와 산업 뉴스를 분석하여 실적 분석에 도움이 되는 인사이트를 도출합니다.
-            시장 동향, 경쟁사 현황, 산업 트렌드 등을 파악하여 기업의 실적과 전망에 미치는 영향을 분석합니다.""",
-            model="gpt-4.1-mini"
-        )
-        
     def _setup_korean_font(self):
         """한글 폰트 설정"""
         plt.rcParams['font.family'] = ['Malgun Gothic', 'DejaVu Sans']
@@ -158,7 +143,8 @@ class AIReporter:
             'earnings_analysis': self.summary_dir / 'earnings_analysis.md', 
             'financial_analysis': self.summary_dir / 'financial_analysis.md',
             'ir_summary': self.summary_dir / 'ir_summary.md',
-            'consensus_analysis': self.summary_dir / 'consensus_analysis.md'
+            'consensus_analysis': self.summary_dir / 'consensus_analysis.md',
+            'news_analysis': self.summary_dir / 'news_analysis.md',
         }
         
         for key, file_path in required_files.items():
@@ -190,130 +176,6 @@ class AIReporter:
                     print(f"Warning: {md_file} 파일 읽기 실패: {e}")
         
         return descriptions
-    
-    def _search_news_with_tavily(self, company_name: str, industry: str = "") -> Dict[str, str]:
-        """Tavily API를 사용한 뉴스 검색"""
-        if not self.tavily_api_key:
-            return {"company_news": "뉴스 검색 불가: Tavily API 키 없음", "industry_news": "뉴스 검색 불가: Tavily API 키 없음"}
-        
-        news_data = {}
-        
-        # 기업 관련 뉴스 검색
-        try:
-            company_query = f"{company_name} 실적 earnings financial performance recent news"
-            company_response = requests.post(
-                "https://api.tavily.com/search",
-                json={
-                    "api_key": self.tavily_api_key,
-                    "query": company_query,
-                    "search_depth": "basic",
-                    "include_answer": True,
-                    "include_raw_content": False,
-                    "max_results": 5,
-                    "include_domains": ["naver.com", "daum.net", "yonhapnews.co.kr", "einfomax.co.kr", "mk.co.kr", "sedaily.com"]
-                },
-                timeout=10
-            )
-            
-            if company_response.status_code == 200:
-                company_data = company_response.json()
-                # 검색 결과를 텍스트로 정리
-                company_articles = []
-                for result in company_data.get('results', []):
-                    company_articles.append(f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:300]}...\n출처: {result.get('url', 'N/A')}")
-                
-                news_data['company_news'] = "\n\n".join(company_articles) if company_articles else "기업 관련 뉴스를 찾을 수 없습니다."
-            else:
-                news_data['company_news'] = "기업 뉴스 검색 실패"
-                
-        except Exception as e:
-            print(f"Warning: 기업 뉴스 검색 중 오류 발생: {e}")
-            news_data['company_news'] = "기업 뉴스 검색 중 오류 발생"
-        
-        # 산업 관련 뉴스 검색
-        try:
-            if industry:
-                industry_query = f"{industry} industry trends market outlook korea recent news"
-            else:
-                industry_query = f"{company_name} sector industry market news"
-                
-            industry_response = requests.post(
-                "https://api.tavily.com/search",
-                json={
-                    "api_key": self.tavily_api_key,
-                    "query": industry_query,
-                    "search_depth": "basic",
-                    "include_answer": True,
-                    "include_raw_content": False,
-                    "max_results": 5,
-                    "include_domains": ["naver.com", "daum.net", "yonhapnews.co.kr", "einfomax.co.kr", "mk.co.kr", "sedaily.com"]
-                },
-                timeout=10
-            )
-            
-            if industry_response.status_code == 200:
-                industry_data = industry_response.json()
-                # 검색 결과를 텍스트로 정리
-                industry_articles = []
-                for result in industry_data.get('results', []):
-                    industry_articles.append(f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:300]}...\n출처: {result.get('url', 'N/A')}")
-                
-                news_data['industry_news'] = "\n\n".join(industry_articles) if industry_articles else "산업 관련 뉴스를 찾을 수 없습니다."
-            else:
-                news_data['industry_news'] = "산업 뉴스 검색 실패"
-                
-        except Exception as e:
-            print(f"Warning: 산업 뉴스 검색 중 오류 발생: {e}")
-            news_data['industry_news'] = "산업 뉴스 검색 중 오류 발생"
-        
-        return news_data
-    
-    def _analyze_news_impact(self, news_data: Dict[str, str], data: Dict[str, str]) -> str:
-        """뉴스 분석을 통한 실적 영향 평가"""
-        if not news_data.get('company_news') and not news_data.get('industry_news'):
-            return "뉴스 데이터가 없어 분석을 수행할 수 없습니다."
-        
-        prompt = f"""
-        다음 뉴스 정보를 분석하여 기업의 실적과 전망에 미치는 영향을 평가하세요:
-
-        **기업 관련 뉴스:**
-        {news_data.get('company_news', '없음')}
-
-        **산업/시장 뉴스:**
-        {news_data.get('industry_news', '없음')}
-
-        **기업 기본 정보 (참고용):**
-        {data.get('company_business', '없음')[:500]}
-
-        **분석 요청사항:**
-        1. 뉴스에서 발견된 주요 이슈들이 기업 실적에 미치는 긍정적/부정적 영향
-        2. 시장 및 산업 트렌드가 기업 전망에 주는 시사점
-        3. 뉴스 기반 리스크 요인 및 기회 요인 식별
-        4. 향후 실적 전망에 반영해야 할 외부 요인들
-
-        **출력 형식:**
-        ## 뉴스 기반 시장 분석
-
-        ### 1. 주요 뉴스 이슈 분석
-        - **긍정적 요인**: [구체적 설명]
-        - **부정적 요인**: [구체적 설명]
-
-        ### 2. 산업 동향 및 시장 환경
-        [시장 트렌드와 기업에 미치는 영향]
-
-        ### 3. 리스크 및 기회 요인
-        - **기회 요인**: [구체적 설명]
-        - **리스크 요인**: [구체적 설명]
-
-        ### 4. 실적 전망에 대한 시사점
-        [뉴스 기반 전망 조정 필요성]
-        """
-        
-        try:
-            return self.news_analysis_agent.run(prompt, temperature=0.2)
-        except Exception as e:
-            print(f"Warning: 뉴스 분석 중 오류 발생: {e}")
-            return "뉴스 분석 중 오류가 발생했습니다."
         
     def _select_relevant_images(self, report_section: str, section_title: str, 
                                image_descriptions: Dict[str, str]) -> List[str]:
@@ -382,6 +244,9 @@ class AIReporter:
 
         **IR 발표자료 요약:**
         {data.get('ir_summary', '데이터 없음')}
+        
+        **뉴스 분석:**
+        {data.get('news_analysis', '데이터 없음')}
 
         **분석 요청사항:**
         1. 실적이 예측치를 상회/하회한 핵심 요인 3가지
@@ -431,6 +296,12 @@ class AIReporter:
 
         **재무 현황:**
         {data.get('financial_analysis', '데이터 없음')}
+        
+        **IR 발표 요약:**
+        {data.get('ir_summary', '데이터 없음')}
+        
+        **뉴스 분석:**
+        {data.get('news_analysis', '데이터 없음')}
         """
         
         # 낙관적 시나리오
@@ -750,19 +621,10 @@ class AIReporter:
         
         
     def generate_report(self, analysis_result: str, scenarios: Dict[str, str], 
-                       charts: List[str] = None, data: Dict[str, str] = None, 
-                       news_analysis: str = None) -> str:
+                       charts: List[str] = None, data: Dict[str, str] = None,
+                        ) -> str:
         """최종 보고서 생성 (이미지 및 뉴스 분석 포함)"""
-        
-        # 뉴스 분석 섹션 추가
-        news_section = ""
-        if news_analysis:
-            news_section = f"""
 
-        **뉴스 기반 시장 분석:**
-        {news_analysis}
-        """
-        
         report_prompt = f"""
         다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요:
 
@@ -778,13 +640,12 @@ class AIReporter:
 
         **비관적 시나리오:**
         {scenarios.get('pessimistic', '')}
-        {news_section}
 
         **보고서 구성 요구사항:**
         1. 제목: 회사명 + 실적 분석 리포트 + 날짜
         2. 요약 (Executive Summary)
         3. 실적 분석 상세
-        4. 시장 및 뉴스 동향 분석 (뉴스 분석이 있는 경우)
+        4. 시장 및 뉴스 동향 분석
         5. 다음분기 시나리오별 분석 (표 형식과 해설 문단 포함)
         6. 리스크 요인
         7. 결론
@@ -867,60 +728,33 @@ class AIReporter:
             
         return str(report_path)
         
-    def run_full_analysis(self, company_name: str = "", industry: str = "", include_news: bool = True) -> str:
+    def run_full_analysis(self) -> str:
         """전체 분석 프로세스 실행"""
         print("🚀 AI Reporter 시작...")
         
         # 1. 데이터 로드
         print("📊 데이터 로딩...")
         data = self.load_data()
-        
-        # 2. 뉴스 검색 및 분석 (선택적)
-        news_analysis = None
-        if include_news and self.tavily_api_key:
-            print("📰 뉴스 검색 및 분석...")
-            try:
-                # 기업명이 제공되지 않은 경우 company_business에서 추출 시도
-                if not company_name:
-                    company_business = data.get('company_business', '')
-                    if company_business:
-                        # 간단한 패턴 매칭으로 회사명 추출
-                        import re
-                        company_match = re.search(r'([가-힣A-Za-z]+(?:\s+[가-힣A-Za-z]+)*)', company_business)
-                        if company_match:
-                            company_name = company_match.group(1)
-                
-                if company_name:
-                    news_data = self._search_news_with_tavily(company_name, industry)
-                    news_analysis = self._analyze_news_impact(news_data, data)
-                    print(f"✅ 뉴스 분석 완료 (기업: {company_name})")
-                else:
-                    print("⚠️ 기업명을 찾을 수 없어 뉴스 검색을 건너뜁니다.")
-            except Exception as e:
-                print(f"⚠️ 뉴스 분석 중 오류 발생: {e}")
-                news_analysis = None
-        elif include_news and not self.tavily_api_key:
-            print("⚠️ Tavily API 키가 없어 뉴스 검색을 건너뜁니다.")
-        
-        # 3. 실적 분석
+
+        # 2. 실적 분석
         print("🔍 실적 성과 분석...")
         analysis_result = self.analyze_earnings_performance(data)
         
-        # 4. 시나리오 생성
+        # 3. 시나리오 생성
         print("🎯 시나리오 생성...")
         scenarios = self.generate_scenarios(data, analysis_result)
         
-        # 5. 최종 보고서 생성 (뉴스 분석 포함)
+        # 4. 최종 보고서 생성 (뉴스 분석 포함)
         print("📝 보고서 생성...")
-        report = self.generate_report(analysis_result, scenarios, None, data, news_analysis)
+        report = self.generate_report(analysis_result, scenarios, None, data)
         
-        # 6. 보고서 기반 차트 생성
+        # 5. 보고서 기반 차트 생성
         print("📈 보고서 기반 차트 생성...")
         charts = self._generate_charts_from_report(
             report, data, data.get('image_descriptions', {})
         )
         
-        # 7. 차트가 생성되었다면 보고서에 추가 (위치 정보만)
+        # 6. 차트가 생성되었다면 보고서에 추가 (위치 정보만)
         if charts:
             print(f"✅ {len(charts)}개의 차트가 생성되었습니다.")
             chart_section = "\n\n## 추가 차트 분석\n\n"
@@ -928,7 +762,7 @@ class AIReporter:
                 chart_section += f"### 차트 {i}\n{chart_info}\n\n"
             report += chart_section
         
-        # 8. 최종 보고서 저장
+        # 7. 최종 보고서 저장
         report_path = self.save_report(report)
         
         print(f"✅ 분석 완료! 보고서 저장: {report_path}")

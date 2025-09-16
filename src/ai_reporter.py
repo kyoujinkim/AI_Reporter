@@ -84,6 +84,15 @@ class AIReporter:
             model="gpt-4.1-mini"
         )
         
+        self.image_selector_agent = Agent(
+            api_key=self.api_key,
+            name="ImageSelector",
+            description="""당신은 보고서에 적합한 이미지를 선택하는 전문가입니다.
+            보고서 섹션 내용과 이미지 설명을 비교하여 가장 관련성이 높은 이미지를 선택합니다.
+            각 섹션의 주제와 내용에 맞는 최적의 시각 자료를 추천합니다.""",
+            model="gpt-4.1-mini"
+        )
+        
     def _setup_korean_font(self):
         """한글 폰트 설정"""
         plt.rcParams['font.family'] = ['Malgun Gothic', 'DejaVu Sans']
@@ -109,8 +118,79 @@ class AIReporter:
             else:
                 print(f"Warning: {file_path} 파일을 찾을 수 없습니다.")
                 data[key] = ""
+        
+        # 이미지 및 설명 데이터 로드
+        data['image_descriptions'] = self._load_image_descriptions()
                 
         return data
+        
+    def _load_image_descriptions(self) -> Dict[str, str]:
+        """이미지별 설명 파일들 로드"""
+        descriptions = {}
+        markdown_dir = self.summary_dir / 'markdown'
+        
+        if markdown_dir.exists():
+            for md_file in markdown_dir.glob('*.md'):
+                # p002.md -> p002 형태로 키 생성
+                key = md_file.stem
+                try:
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        descriptions[key] = f.read()
+                except Exception as e:
+                    print(f"Warning: {md_file} 파일 읽기 실패: {e}")
+        
+        return descriptions
+        
+    def _select_relevant_images(self, report_section: str, section_title: str, 
+                               image_descriptions: Dict[str, str]) -> List[str]:
+        """보고서 섹션에 적합한 이미지들 선택"""
+        if not image_descriptions:
+            return []
+            
+        # 이미지 설명들을 하나의 텍스트로 결합
+        descriptions_text = "\n\n".join([
+            f"**{img_id}**: {desc}" 
+            for img_id, desc in image_descriptions.items()
+        ])
+        
+        prompt = f"""
+        다음 보고서 섹션에 가장 적합한 이미지를 선택하세요:
+        
+        **보고서 섹션 제목:** {section_title}
+        **보고서 섹션 내용:**
+        {report_section}
+        
+        **사용 가능한 이미지들과 설명:**
+        {descriptions_text}
+        
+        **선택 기준:**
+        1. 보고서 섹션의 주제와 가장 관련성이 높은 이미지
+        2. 섹션 내용을 뒷받침하거나 시각적으로 설명할 수 있는 이미지
+        3. 투자자에게 유용한 정보를 제공하는 이미지
+        
+        **출력 형식:**
+        선택된 이미지 ID만 쉼표로 구분하여 나열하세요. (예: p002, p009, p023)
+        만약 적합한 이미지가 없다면 "없음"이라고 답하세요.
+        """
+        
+        try:
+            response = self.image_selector_agent.run(prompt, temperature=0.1)
+            # 응답에서 이미지 ID 추출
+            if "없음" in response or "None" in response:
+                return []
+            
+            # 이미지 ID들 추출 및 정리
+            image_ids = []
+            for img_id in response.replace(" ", "").split(","):
+                img_id = img_id.strip()
+                if img_id in image_descriptions:
+                    image_ids.append(img_id)
+                    
+            return image_ids[:3]  # 최대 3개까지만
+            
+        except Exception as e:
+            print(f"Warning: 이미지 선택 중 오류 발생: {e}")
+            return []
         
     def analyze_earnings_performance(self, data: Dict[str, str]) -> str:
         """실적 발표 결과와 기존 예측치 비교 분석"""
@@ -256,8 +336,8 @@ class AIReporter:
         return str(chart_path)
         
     def generate_report(self, analysis_result: str, scenarios: Dict[str, str], 
-                       charts: List[str] = None) -> str:
-        """최종 보고서 생성"""
+                       charts: List[str] = None, data: Dict[str, str] = None) -> str:
+        """최종 보고서 생성 (이미지 포함)"""
         report_prompt = f"""
         다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요:
 
@@ -287,6 +367,12 @@ class AIReporter:
         
         report_content = self.report_agent.run(report_prompt, temperature=0.2)
         
+        # 이미지 통합
+        if data and 'image_descriptions' in data:
+            report_content = self._integrate_images_into_report(
+                report_content, data['image_descriptions']
+            )
+        
         # 차트가 있다면 보고서에 추가
         if charts:
             chart_section = "\n\n## 차트 분석\n\n"
@@ -295,6 +381,45 @@ class AIReporter:
             report_content += chart_section
             
         return report_content
+        
+    def _integrate_images_into_report(self, report_content: str, 
+                                     image_descriptions: Dict[str, str]) -> str:
+        """보고서에 관련 이미지들 통합"""
+        if not image_descriptions:
+            return report_content
+            
+        # 보고서를 섹션별로 분할
+        sections = report_content.split('\n## ')
+        integrated_content = sections[0]  # 제목 부분
+        
+        for i, section in enumerate(sections[1:], 1):
+            section_lines = section.split('\n')
+            section_title = section_lines[0] if section_lines else f"섹션 {i}"
+            section_text = '\n'.join(section_lines)
+            
+            # 각 섹션에 적합한 이미지 선택
+            relevant_images = self._select_relevant_images(
+                section_text, section_title, image_descriptions
+            )
+            
+            # 섹션 추가
+            integrated_content += f"\n## {section_text}"
+            
+            # 관련 이미지가 있으면 섹션 끝에 추가
+            if relevant_images:
+                integrated_content += "\n\n### 관련 자료\n\n"
+                for img_id in relevant_images:
+                    img_path = f"./src/data/summary/images/{img_id}.png"
+                    integrated_content += f"![{img_id}]({img_path})\n\n"
+                    # 이미지 설명도 간단히 추가
+                    desc_lines = image_descriptions[img_id].split('\n')
+                    title_line = next((line for line in desc_lines if '핵심 요약' in line), None)
+                    if title_line:
+                        idx = desc_lines.index(title_line)
+                        if idx + 1 < len(desc_lines):
+                            integrated_content += f"*{desc_lines[idx + 1].strip()}*\n\n"
+        
+        return integrated_content
         
     def save_report(self, report_content: str, filename: str = None) -> str:
         """보고서를 파일로 저장"""
@@ -344,7 +469,7 @@ class AIReporter:
         
         # 5. 최종 보고서 생성
         print("📝 보고서 생성...")
-        report = self.generate_report(analysis_result, scenarios, charts)
+        report = self.generate_report(analysis_result, scenarios, charts, data)
         
         # 6. 보고서 저장
         report_path = self.save_report(report)

@@ -23,6 +23,19 @@ class Agent:
 
         return response.choices[0].message.content
 
+    def run_with_structured_format(self, prompt, response_format, max_tokens=1000, temperature=0.7):
+        self.messages.append({"role": "system", "content": prompt})
+        response = self.client.chat.completions.parse(
+            model=self.model,
+            messages=self.messages,
+            #max_tokens=max_tokens,
+            temperature=temperature,
+            response_format=response_format
+        )
+        self.messages.append(response.choices[0].message)
+
+        return response.choices[0].message.parsed
+
     def add_tool(self, tool):
         self.tools.append(tool)
 

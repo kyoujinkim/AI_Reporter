@@ -210,7 +210,7 @@ class AIReporter:
                 if img_id in image_descriptions:
                     image_ids.append(img_id)
                     
-            return image_ids[:3]  # 최대 3개까지만
+            return image_ids[:5]  # 최대 3개까지만
             
         except Exception as e:
             print(f"Warning: 이미지 선택 중 오류 발생: {e}")
@@ -289,7 +289,7 @@ class AIReporter:
         - 현재 실적 분석 결과를 바탕으로 긍정적 요인들의 임팩트를 평가하여 적절한 상향 조정 폭을 결정하세요
         - 다음분기 컨센서스 수치를 기준으로 분석된 긍정적 요인들이 실현될 경우의 성장 전망
         - 구체적 수치 목표 제시 (매출, 영업이익, 순이익을 분석 근거에 따라 상향 조정)
-        - 상향 조정 근거, 조정 폭 결정 이유, 전제 조건 명시
+        - 조정 폭을 분해하여, 각각마다 상향 조정 근거, 조정 폭 결정 이유, 전제 조건 명시
         """
         
         # 중립적 시나리오  
@@ -307,11 +307,11 @@ class AIReporter:
         - 현재 실적 분석에서 식별된 리스크 요인들의 영향도를 평가하여 적절한 하향 조정 폭을 결정하세요
         - 다음분기 컨센서스 대비 부정적 요인들이 현실화될 경우의 성장 전망
         - 하방 리스크를 반영한 구체적 수치 제시 (분석 근거에 기반한 조정)
-        - 하향 조정 근거, 조정 폭 결정 이유, 위험 요소 분석
+        - 조정 폭을 분해하여, 각각마다 하향 조정 근거, 조정 폭 결정 이유, 위험 요소 분석
         """
         
         scenarios['optimistic'] = self.scenario_agent.run(optimistic_prompt, temperature=0.3)
-        scenarios['neutral'] = self.scenario_agent.run(neutral_prompt, temperature=0.2) 
+        scenarios['neutral'] = self.scenario_agent.run(neutral_prompt, temperature=0.3)
         scenarios['pessimistic'] = self.scenario_agent.run(pessimistic_prompt, temperature=0.3)
         
         return scenarios
@@ -401,10 +401,10 @@ class AIReporter:
         {image_summary}
         
         **사용 가능한 데이터:**
-        - 기업 사업 현황: {data.get('company_business', '없음')[:100]}...
-        - 실적 분석: {data.get('earnings_analysis', '없음')[:100]}...
-        - 재무 분석: {data.get('financial_analysis', '없음')[:100]}...
-        - 컨센서스 분석: {data.get('consensus_analysis', '없음')[:100]}...
+        - 기업 사업 현황: {data.get('company_business', '없음')[:1000]}...
+        - 실적 분석: {data.get('earnings_analysis', '없음')[:1000]}...
+        - 재무 분석: {data.get('financial_analysis', '없음')[:1000]}...
+        - 컨센서스 분석: {data.get('consensus_analysis', '없음')[:1000]}...
         
         **차트 제안 기준:**
         1. 보고서에서 언급된 수치 데이터 시각화
@@ -412,12 +412,12 @@ class AIReporter:
         3. 트렌드 분석 차트
         4. 투자자 의사결정에 도움되는 차트
         
-        최대 3개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열을 반환하세요.
+        보고서의 내용을 뒷받침할 여러개의 차트를 제안하세요. 만약 차트가 필요하지 않다면 빈 배열을 반환하세요.
         """
         
         try:
             # Pydantic response_format을 사용하여 구조화된 응답 강제
-            response = self.chart_generator_agent.run_with_response_format(
+            response = self.chart_generator_agent.run_with_structured_format(
                 prompt=prompt,
                 response_format=ChartSuggestions,
                 temperature=0.3
@@ -425,35 +425,13 @@ class AIReporter:
             
             # 응답이 ChartSuggestions 객체인 경우
             if hasattr(response, 'charts'):
-                return response.charts[:3]  # 최대 3개
+                return response.charts[:5]  # 최대 5개
             else:
                 return []
-                
+
         except Exception as e:
-            print(f"Warning: 차트 제안 생성 중 오류 발생: {e}")
-            # 기존 JSON 파싱 방식으로 폴백
-            try:
-                fallback_response = self.chart_generator_agent.run(prompt, temperature=0.3)
-                import json
-                import re
-                
-                # JSON 부분만 추출
-                json_match = re.search(r'\[.*\]', fallback_response, re.DOTALL)
-                if json_match:
-                    json_str = json_match.group(0)
-                    suggestions_data = json.loads(json_str)
-                    
-                    # Dict 리스트를 ChartSuggestion 객체로 변환
-                    suggestions = []
-                    for item in suggestions_data:
-                        if isinstance(item, dict) and all(key in item for key in ['type', 'title', 'data_source', 'description']):
-                            suggestions.append(ChartSuggestion(**item))
-                    return suggestions[:3]
-                else:
-                    return []
-            except Exception as fallback_error:
-                print(f"Warning: 폴백 차트 제안도 실패: {fallback_error}")
-                return []
+            print(f"Warning: 차트 제안 중 오류 발생: {e}")
+            return []
             
     def _create_chart_from_suggestion(self, suggestion: ChartSuggestion, data: Dict[str, str]) -> Optional[str]:
         """제안된 차트 생성"""

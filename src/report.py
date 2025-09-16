@@ -599,30 +599,27 @@ if __name__ == "__main__":
     industry = "직영 중고차 판매 및 매입 플랫폼"
 
     # Read annual report and summarize
-    #comapny_business = read_annual_report(code, out_dir='./data/summary')
-    #print(comapny_business.summary)
-    #read from md
-    with open('./data/summary/company_business.md', 'r', encoding='utf-8') as f:
-        company_business = f.read()
-    a = 1
+    comapny_business = read_annual_report(code, out_dir='./data/summary')
+    print(comapny_business.summary)
 
     # Read financial data and analyze
-    #financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
-    #print(financial_analysis)
+    financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
+    print(financial_analysis)
 
     # Read earnings report
-    #earnings_analysis = analyze_earnings(code, out_dir='./data/summary')
-    #print(earnings_analysis)
+    earnings_analysis = analyze_earnings(code, out_dir='./data/summary')
+    print(earnings_analysis)
 
     # Read IR report
-    #ir_summary = read_ir_report(fncode, out_dir='./data/summary')
-    #print(ir_summary.summary)
+    ir_summary = read_ir_report(fncode, out_dir='./data/summary')
+    print(ir_summary.summary)
     
     # Read and analyze future guidance data
-    #future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
-    #print(future_guidance_analysis)
+    future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
+    print(future_guidance_analysis)
 
     # Search News from Tavily
-    news_analysis = analyze_news(company_name, industry, company_business)
+    news_analysis = analyze_news(company_name, industry, comapny_business.summary)
+    print(news_analysis)
 
     # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary, future_guidance_analysis)

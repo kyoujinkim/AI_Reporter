@@ -772,7 +772,7 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
             print(f"산업 뉴스 필터링 결과: 고관련성 {len(filtered_industry['high_relevance'])}개, "
                   f"중관련성 {len(filtered_industry['medium_relevance'])}개, "
                   f"저관련성 {len(filtered_industry['low_relevance'])}개")
-            
+
             news_data['industry_news'] = "\n\n".join(relevant_articles) if relevant_articles else "관련성 높은 산업 뉴스를 찾을 수 없습니다."
         else:
             news_data['industry_news'] = "산업 관련 뉴스를 찾을 수 없습니다."

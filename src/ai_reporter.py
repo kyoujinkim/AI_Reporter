@@ -53,15 +53,16 @@ class ChartSuggestions(BaseModel):
 class AIReporter:
     """AI 기반 기업 실적 분석 및 보고서 생성 시스템"""
     
-    def __init__(self, config_path: str = "D:/config.ini"):
+    def __init__(self, fncode, config_path: str = "D:/config.ini"):
         """
         Args:
             config_path: OpenAI API 키가 포함된 설정 파일 경로
         """
+        self.fncode = fncode
         self.config_path = config_path
         self.data_dir = Path("./data")
-        self.summary_dir = self.data_dir / "summary"
-        self.output_dir = Path("./output")
+        self.summary_dir = self.data_dir / f"{fncode}_summary"
+        self.output_dir = Path(f"./output/{fncode}")
         
         # 디렉터리 생성
         self.output_dir.mkdir(exist_ok=True)
@@ -719,7 +720,7 @@ class AIReporter:
         """보고서를 파일로 저장"""
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"ai_report_{timestamp}.md"
+            filename = f"ai_report_{self.fncode}_{timestamp}.md"
             
         report_path = self.output_dir / filename
         
@@ -770,10 +771,10 @@ class AIReporter:
         return report_path
 
 
-def main():
+def main(fncode):
     """메인 실행 함수"""
     try:
-        reporter = AIReporter()
+        reporter = AIReporter(fncode)
         report_path = reporter.run_full_analysis()
         
         print(f"\n🎉 AI Reporter 분석이 완료되었습니다!")
@@ -793,4 +794,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main("A095340")

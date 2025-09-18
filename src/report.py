@@ -17,15 +17,6 @@ from src.tools.pdf_parser import PDFParser
 import OpenDartReader
 
 
-class NewsRelevance(BaseModel):
-    """뉴스 관련성 평가 Pydantic 모델"""
-    relevance_level: str  # HIGH, MEDIUM, LOW
-    reasoning: str  # 평가 근거
-
-
-code = '381970'
-fncode = 'A' + code
-
 config_file = "D:/config.ini"
 config = configparser.ConfigParser()
 config.read(config_file)
@@ -68,7 +59,13 @@ news_filter_agent = Agent(
     model="gpt-4.1-mini"
 )
 
-company_info = dart.company(code)
+
+
+class NewsRelevance(BaseModel):
+    """뉴스 관련성 평가 Pydantic 모델"""
+    relevance_level: str  # HIGH, MEDIUM, LOW
+    reasoning: str  # 평가 근거
+
 
 def _load_domain_lists():
     """외부 설정 파일에서 도메인 목록을 로드하는 함수"""
@@ -133,6 +130,8 @@ def read_annual_report(code, out_dir='./data/summary'):
         summarize = summarizer.run(chunks)
 
         # Save summary to markdown file
+        # create out_dir if not exists
+        os.makedirs(out_dir, exist_ok=True)
         with open(f'{out_dir}/company_business.md', 'w', encoding='utf-8') as md_file:
             md_file.write(summarize.summary)
 
@@ -178,6 +177,8 @@ def analyze_financial_data(fncode, out_dir='./data/summary'):
     )
 
     # Save financial analysis to markdown file
+    # create out_dir if not exists
+    os.makedirs(out_dir, exist_ok=True)
     with open(f'{out_dir}/financial_analysis.md', 'w', encoding='utf-8') as md_file:
         md_file.write(financial_analysis)
 
@@ -204,6 +205,9 @@ def analyze_earnings(code, out_dir='./data/summary'):
     consensus.columns = f'{consensus_date}' + consensus.columns + ' 컨센서스(백만원)'
     earnings = earnings_report(code)
     earnings_text = "\n".join([str(e) for e in earnings if hasattr(e, 'text') and e.text.strip() != ''])
+    # save earnings_text to md file
+    with open(f'{out_dir}/earnings_report.md', 'w', encoding='utf-8') as md_file:
+        md_file.write(earnings_text)
 
     # 3. 통합 분석 프롬프트
     prompt = f"""
@@ -233,6 +237,8 @@ def analyze_earnings(code, out_dir='./data/summary'):
     )
 
     # Save earnings analysis to markdown file
+    # create out_dir if not exists
+    os.makedirs(out_dir, exist_ok=True)
     with open(f'{out_dir}/earnings_analysis.md', 'w', encoding='utf-8') as md_file:
         md_file.write(response)
 
@@ -254,6 +260,8 @@ def read_ir_report(fncode, out_dir='./data/summary'):
     summarize = summarizer.run_text(markdown_content, 4000)
 
     # Save IR summary to markdown file
+    # create out_dir if not exists
+    os.makedirs(out_dir, exist_ok=True)
     with open(f'{out_dir}/ir_summary.md', 'w', encoding='utf-8') as md_file:
         md_file.write(summarize.summary)
 
@@ -273,7 +281,7 @@ def analyze_consensus(fncode, out_dir='./data/summary'):
     try:
         # future sheet 읽기
         future_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='future', header=9)
-        future_data.index = future_data['FPeriod']
+        future_data.index = future_data['Period']
         future_data = future_data.pivot(columns='Name', values=future_data.columns[-1:])
         future_data.columns = future_data.columns.droplevel(0) + '(백만원)'
         
@@ -284,14 +292,30 @@ def analyze_consensus(fncode, out_dir='./data/summary'):
         
         # 데이터 전처리 - NaN 값 처리
         future_data = future_data.dropna(how='all')  # 모든 값이 NaN인 행 제거
-        future_data = future_data.fillna('-')  # 남은 NaN을 '-'로 대체
+        future_data = future_data.fillna('-') # 남은 NaN을 '-'로 대체
+
+        # read earning_report.md file
+        with open(f'{out_dir}/earnings_report.md', 'r', encoding='utf-8') as md_file:
+            earnings_analysis = md_file.read()
+
+        sales_past_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='sales', header=9, index_col=1).iloc[:,-1:]
+        op_past_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='op', header=9, index_col=1).iloc[:,-1:]
+        income_past_data = pd.read_excel(f'./data/{fncode}_IS.xlsx', sheet_name='income', header=9, index_col=1).iloc[:,-1:]
+        past_data = pd.concat([sales_past_data, op_past_data, income_past_data], axis=1)
+        past_data.columns = ['매출액(백만원)', '영업이익(백만원)', '지배순이익(백만원)']
         
         # 미래 가이던스 분석 프롬프트 생성 - 수치 중심 분석
         future_analysis_prompt = f"""
         회사명: {company_info['corp_name']}
         
-        [미래 가이던스 데이터]
+        [다음 분기 가이던스 데이터]
         {future_data.to_markdown()}
+        
+        [현재 분기 실적 발표 데이터]
+        {earnings_analysis}
+        
+        [과거 실적(지난 분기부터) 데이터]
+        {past_data.to_markdown()}
         
         분석 지침 - 수치 중심 분석:
         미래 가이던스 데이터를 기준으로 향후 재무 성과에 대해 전망하시오.
@@ -340,6 +364,8 @@ def analyze_consensus(fncode, out_dir='./data/summary'):
         )
         
         # 분석 결과를 markdown 파일로 저장
+        # create out_dir if not exists
+        os.makedirs(out_dir, exist_ok=True)
         with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(future_analysis)
 
@@ -354,13 +380,15 @@ def analyze_consensus(fncode, out_dir='./data/summary'):
         print(error_msg)
         return error_msg
 
-def analyze_news(company_name: str, industry: str = "", company_business: str = "") -> str:
+def analyze_news(company_name: str, industry: str = "", company_business: str = "", out_dir='./data/summary') -> str:
     """뉴스 검색 및 분석 통합 함수"""
     news_data = _search_news_with_tavily(company_name, industry, company_business)
     analysis = _analyze_news_impact(news_data, company_business)
 
     # Save news analysis to markdown file
-    with open(f'./data/summary/news_analysis.md', 'w', encoding='utf-8') as md_file:
+    # create out_dir if not exists
+    os.makedirs(out_dir, exist_ok=True)
+    with open(f'{out_dir}/news_analysis.md', 'w', encoding='utf-8') as md_file:
         md_file.write(analysis)
 
     return analysis
@@ -507,7 +535,7 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
                 "search_depth": "advanced",
                 "include_answer": False,
                 "include_raw_content": False,
-                "max_results": 12,
+                "max_results": 15,
                 "days": 60,
                 "include_domains": include_domains,
                 "exclude_domains": exclude_domains
@@ -593,33 +621,38 @@ def _analyze_news_impact(news_data: Dict[str, str], company_business: str) -> st
         print(f"Warning: 뉴스 분석 중 오류 발생: {e}")
         return "뉴스 분석 중 오류가 발생했습니다."
 
+
+code = '095340'
+fncode = 'A' + code
+company_info = dart.company(code)
+
 if __name__ == "__main__":
     # 회사 기본정보 조회
     company_name = company_info['stock_name']
-    industry = "직영 중고차 판매 및 매입 플랫폼"
+    industry = "반도체테스트소켓 제조업"
 
     # Read annual report and summarize
-    comapny_business = read_annual_report(code, out_dir='./data/summary')
-    print(comapny_business.summary)
+    #comapny_business = read_annual_report(code, out_dir=f'./data/{fncode}_summary')
+    #print(comapny_business.summary)
 
     # Read financial data and analyze
-    financial_analysis = analyze_financial_data(fncode, out_dir='./data/summary')
-    print(financial_analysis)
+    #financial_analysis = analyze_financial_data(fncode, out_dir=f'./data/{fncode}_summary')
+    #print(financial_analysis)
 
     # Read earnings report
-    earnings_analysis = analyze_earnings(code, out_dir='./data/summary')
+    earnings_analysis = analyze_earnings(code, out_dir=f'./data/{fncode}_summary')
     print(earnings_analysis)
 
-    # Read IR report
-    ir_summary = read_ir_report(fncode, out_dir='./data/summary')
-    print(ir_summary.summary)
-    
-    # Read and analyze future guidance data
-    future_guidance_analysis = analyze_consensus(fncode, out_dir='./data/summary')
+    # Read and analyzre future guidance data
+    future_guidance_analysis = analyze_consensus(fncode, out_dir=f'./data/{fncode}_summary')
     print(future_guidance_analysis)
 
+    # Read IR report
+    #ir_summary = read_ir_report(fncode, out_dir=f'./data/{fncode}_summary')
+    #print(ir_summary.summary)
+
     # Search News from Tavily
-    news_analysis = analyze_news(company_name, industry, comapny_business.summary)
-    print(news_analysis)
+    #news_analysis = analyze_news(company_name, industry, comapny_business.summary, out_dir=f'./data/{fncode}_summary')
+    #print(news_analysis)
 
     # Process Deep Research with collected data(company_business, financial_analysis, earnings_analysis, ir_summary, future_guidance_analysis)

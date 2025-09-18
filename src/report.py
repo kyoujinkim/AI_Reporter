@@ -59,12 +59,32 @@ news_filter_agent = Agent(
     model="gpt-4.1-mini"
 )
 
+news_keyword_agent = Agent(
+    api_key=ai_key,
+    name="NewsKeywordAgent",
+    description="""당신은 뉴스 분석 및 키워드 추출 전문가입니다.
+    수집된 뉴스를 분석하여 추가 탐색이 필요한 핵심 키워드와 주제를 식별합니다.
+    시장 트렌드, 신기술, 규제 변화, 경쟁사 동향 등을 파악하여 심화 검색 방향을 제시합니다.""",
+    model="gpt-4.1-mini"
+)
+
 
 
 class NewsRelevance(BaseModel):
     """뉴스 관련성 평가 Pydantic 모델"""
     relevance_level: str  # HIGH, MEDIUM, LOW
     reasoning: str  # 평가 근거
+
+
+class NewsKeywords(BaseModel):
+    """뉴스에서 추출된 핵심 키워드 및 추가 탐색 주제 Pydantic 모델"""
+    key_trends: list[str]  # 주요 트렌드 키워드 (3-5개)
+    emerging_issues: list[str]  # 새로운 이슈들 (2-4개)
+    related_companies: list[str]  # 관련 기업들 (2-4개)
+    regulatory_topics: list[str]  # 규제/정책 관련 주제 (1-3개)
+    technology_keywords: list[str]  # 기술 관련 키워드 (2-4개)
+    market_indicators: list[str]  # 시장 지표 관련 (1-3개)
+    reasoning: str  # 키워드 선정 근거
 
 
 def _load_domain_lists():
@@ -465,6 +485,160 @@ def _filter_news_relevance(news_articles: list, company_name: str, industry: str
     
     return categorized_news
 
+
+def _extract_news_keywords(news_articles: list, company_name: str, industry: str, company_business: str) -> NewsKeywords:
+    """뉴스에서 핵심 키워드 추출하여 추가 탐색 방향 제시"""
+    if not news_articles:
+        return NewsKeywords(
+            key_trends=[],
+            emerging_issues=[],
+            related_companies=[],
+            regulatory_topics=[],
+            technology_keywords=[],
+            market_indicators=[],
+            reasoning="분석할 뉴스가 없음"
+        )
+    
+    # 뉴스 내용을 요약하여 키워드 추출용 텍스트 생성
+    news_summary = "\n".join(news_articles[:10])  # 최대 10개 기사만 사용
+    
+    keyword_prompt = f"""
+    다음 뉴스들을 분석하여 추가적인 심화 탐색이 필요한 핵심 키워드들을 추출하세요:
+
+    **대상 기업**: {company_name}
+    **산업 분야**: {industry}
+    **기업 사업**: {company_business[:300]}
+
+    **수집된 뉴스들**:
+    {news_summary[:2000]}
+
+    **키워드 추출 지침**:
+    
+    1. **주요 트렌드 키워드 (3-5개)**: 
+       - 현재 이 산업에서 주목받고 있는 핵심 트렌드
+       - 예: "디지털 전환", "ESG 경영", "공급망 다변화" 등
+    
+    2. **새로운 이슈들 (2-4개)**:
+       - 최근 새롭게 부상한 이슈나 변화
+       - 예: "새로운 규제", "기술 혁신", "시장 변화" 등
+    
+    3. **관련 기업들 (2-4개)**:
+       - 경쟁사, 파트너사, 공급업체 등
+       - 이들의 동향이 대상 기업에 영향을 줄 수 있는 기업들
+    
+    4. **규제/정책 관련 주제 (1-3개)**:
+       - 정부 정책, 규제 변화, 지원책 등
+       - 예: "반도체법", "탄소중립", "디지털뉴딜" 등
+    
+    5. **기술 관련 키워드 (2-4개)**:
+       - 신기술, R&D, 특허, 기술 표준 등
+       - 예: "AI 반도체", "5G", "자율주행" 등
+    
+    6. **시장 지표 관련 (1-3개)**:
+       - 시장 규모, 성장률, 주요 지표 등
+       - 예: "글로벌 시장 점유율", "수출 증가율" 등
+
+    각 카테고리별로 구체적이고 검색 가능한 키워드를 제안하세요.
+    키워드는 추가 뉴스 검색에 활용될 예정이므로 명확하고 구체적이어야 합니다.
+    """
+    
+    try:
+        keyword_result = news_keyword_agent.run_with_structured_format(
+            prompt=keyword_prompt,
+            response_format=NewsKeywords,
+            temperature=0.2
+        )
+        
+        print(f"키워드 추출 완료: 트렌드 {len(keyword_result.key_trends)}개, "
+              f"이슈 {len(keyword_result.emerging_issues)}개, "
+              f"기업 {len(keyword_result.related_companies)}개")
+        
+        return keyword_result
+        
+    except Exception as e:
+        print(f"Warning: 키워드 추출 중 오류 발생: {e}")
+        return NewsKeywords(
+            key_trends=[industry],
+            emerging_issues=[],
+            related_companies=[],
+            regulatory_topics=[],
+            technology_keywords=[],
+            market_indicators=[],
+            reasoning="키워드 추출 실패로 기본값 사용"
+        )
+
+
+def _search_additional_news(keywords: NewsKeywords, include_domains: list, exclude_domains: list) -> list:
+    """추출된 키워드를 기반으로 추가 뉴스 검색"""
+    additional_articles = []
+    
+    # 키워드 조합으로 검색 쿼리 생성
+    search_queries = []
+    
+    # 1. 주요 트렌드 기반 검색
+    for trend in keywords.key_trends:
+        search_queries.append(f"{trend} korea market analysis 2024")
+        
+    # 2. 새로운 이슈 기반 검색
+    for issue in keywords.emerging_issues:
+        search_queries.append(f"{issue} impact industry outlook")
+        
+    # 3. 관련 기업 기반 검색
+    for company in keywords.related_companies:
+        search_queries.append(f"{company} recent developments business strategy")
+        
+    # 4. 규제/정책 기반 검색
+    for regulation in keywords.regulatory_topics:
+        search_queries.append(f"{regulation} policy impact korea semiconductor")
+        
+    # 5. 기술 기반 검색
+    for tech in keywords.technology_keywords:
+        search_queries.append(f"{tech} technology advancement market trend")
+    
+    # 6. 시장 지표 기반 검색
+    for indicator in keywords.market_indicators:
+        search_queries.append(f"{indicator} korea industry forecast")
+    
+    # 쿼리 수 제한 (API 호출 비용 고려)
+    search_queries = search_queries[:8]  # 최대 8개 쿼리
+    
+    print(f"키워드 기반 추가 검색: {len(search_queries)}개 쿼리 실행")
+    
+    for query in search_queries:
+        try:
+            response = requests.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": tavily_api_key,
+                    "query": query,
+                    "search_depth": "advanced",
+                    "include_answer": False,
+                    "include_raw_content": False,
+                    "max_results": 5,  # 각 쿼리당 5개씩
+                    "days": 90,  # 더 넓은 시간 범위
+                    "include_domains": include_domains,
+                    "exclude_domains": exclude_domains
+                },
+                timeout=15
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                for result in data.get('results', []):
+                    article = f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:400]}...\n출처: {result.get('url', 'N/A')}\n검색키워드: {query[:50]}..."
+                    additional_articles.append(article)
+                    
+            # API 호출 간격 조절
+            import time
+            time.sleep(0.3)
+                    
+        except Exception as e:
+            print(f"Warning: 추가 검색 쿼리 '{query[:30]}...' 실행 중 오류: {e}")
+            continue
+    
+    return additional_articles
+
+
 def _search_news_with_tavily(company_name: str, industry: str = "", company_business: str = "") -> Dict[str, str]:
     """Tavily API를 사용한 뉴스 검색 및 관련성 필터링"""
     if not tavily_api_key:
@@ -523,10 +697,12 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
         print(f"Warning: 기업 뉴스 검색 중 오류 발생: {e}")
         news_data['company_news'] = "기업 뉴스 검색 중 오류 발생"
 
-    # 산업 관련 뉴스 검색
+    # 산업 관련 뉴스 검색 - AI 기반 적응형 탐색
     try:
-        industry_query = f"{industry} industry trends market outlook recent news"
-
+        print("=== 산업 뉴스 적응형 탐색 시작 ===")
+        
+        # 1단계: 기본 산업 뉴스 검색
+        industry_query = f"{industry} industry trends market outlook recent news korea"
         industry_response = requests.post(
             "https://api.tavily.com/search",
             json={
@@ -535,7 +711,7 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
                 "search_depth": "advanced",
                 "include_answer": False,
                 "include_raw_content": False,
-                "max_results": 15,
+                "max_results": 12,
                 "days": 60,
                 "include_domains": include_domains,
                 "exclude_domains": exclude_domains
@@ -543,30 +719,65 @@ def _search_news_with_tavily(company_name: str, industry: str = "", company_busi
             timeout=15
         )
 
+        industry_articles = []
         if industry_response.status_code == 200:
             industry_data = industry_response.json()
-            # 검색 결과를 리스트로 정리
-            industry_articles = []
             for result in industry_data.get('results', []):
-                article = f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:300]}...\n출처: {result.get('url', 'N/A')}"
+                article = f"**{result.get('title', 'N/A')}**\n{result.get('content', 'N/A')[:350]}...\n출처: {result.get('url', 'N/A')}\n검색단계: 기본검색"
                 industry_articles.append(article)
 
-            # 관련성 평가 및 필터링
-            if industry_articles:
-                filtered_industry = _filter_news_relevance(industry_articles, company_name, industry, company_business)
-                
-                # 고관련성과 중관련성 뉴스만 사용
-                relevant_articles = filtered_industry["high_relevance"] + filtered_industry["medium_relevance"]
-                
-                print(f"산업 뉴스 필터링 결과: 고관련성 {len(filtered_industry['high_relevance'])}개, "
-                      f"중관련성 {len(filtered_industry['medium_relevance'])}개, "
-                      f"저관련성 {len(filtered_industry['low_relevance'])}개")
-                
-                news_data['industry_news'] = "\n\n".join(relevant_articles) if relevant_articles else "관련성 높은 산업 뉴스를 찾을 수 없습니다."
-            else:
-                news_data['industry_news'] = "산업 관련 뉴스를 찾을 수 없습니다."
+        print(f"1단계 기본 검색 완료: {len(industry_articles)}개 기사 수집")
+
+        # 2단계: 키워드 추출 및 심화 탐색
+        if industry_articles:
+            # 수집된 뉴스에서 키워드 추출
+            extracted_keywords = _extract_news_keywords(industry_articles, company_name, industry, company_business)
+            
+            print(f"키워드 추출 결과:")
+            print(f"- 주요 트렌드: {extracted_keywords.key_trends}")
+            print(f"- 새로운 이슈: {extracted_keywords.emerging_issues}")
+            print(f"- 관련 기업: {extracted_keywords.related_companies}")
+            print(f"- 규제/정책: {extracted_keywords.regulatory_topics}")
+            print(f"- 기술 키워드: {extracted_keywords.technology_keywords}")
+            print(f"- 시장 지표: {extracted_keywords.market_indicators}")
+            
+            # 추출된 키워드로 추가 검색
+            additional_articles = _search_additional_news(extracted_keywords, include_domains, exclude_domains)
+            
+            print(f"2단계 키워드 기반 추가 검색 완료: {len(additional_articles)}개 기사 수집")
+            
+            # 모든 기사 통합
+            all_industry_articles = industry_articles + additional_articles
         else:
-            news_data['industry_news'] = "산업 뉴스 검색 실패"
+            all_industry_articles = []
+
+        # 중복 제거 (제목 기준)
+        unique_industry_articles = []
+        seen_titles = set()
+        for article in all_industry_articles:
+            title = article.split('\n')[0]  # 첫 번째 줄이 제목
+            if title not in seen_titles:
+                unique_industry_articles.append(article)
+                seen_titles.add(title)
+
+        print(f"중복 제거 후 총 {len(unique_industry_articles)}개 산업 기사")
+
+        # 관련성 평가 및 필터링
+        if unique_industry_articles:
+            filtered_industry = _filter_news_relevance(unique_industry_articles, company_name, industry, company_business)
+            
+            # 고관련성과 중관련성 뉴스만 사용
+            relevant_articles = filtered_industry["high_relevance"] + filtered_industry["medium_relevance"]
+            
+            print(f"산업 뉴스 필터링 결과: 고관련성 {len(filtered_industry['high_relevance'])}개, "
+                  f"중관련성 {len(filtered_industry['medium_relevance'])}개, "
+                  f"저관련성 {len(filtered_industry['low_relevance'])}개")
+            
+            news_data['industry_news'] = "\n\n".join(relevant_articles) if relevant_articles else "관련성 높은 산업 뉴스를 찾을 수 없습니다."
+        else:
+            news_data['industry_news'] = "산업 관련 뉴스를 찾을 수 없습니다."
+
+        print("=== 산업 뉴스 적응형 탐색 완료 ===")
 
     except Exception as e:
         print(f"Warning: 산업 뉴스 검색 중 오류 발생: {e}")

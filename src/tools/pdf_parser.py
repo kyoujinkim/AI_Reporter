@@ -20,6 +20,7 @@ from typing import List, Tuple, Optional
 import fitz  # PyMuPDF
 from pdf2image import convert_from_path
 from PIL import Image
+from pydantic import BaseModel
 
 # OpenAI API
 try:
@@ -35,6 +36,9 @@ class Chapter:
     end_page: int = None
     pages: List[int] = field(default_factory=list)
 
+class OCRdata(BaseModel):
+    text: str
+    reasoning: str
 
 class PDFParser:
     """PDF 파서 클래스 - PDF를 챕터/페이지 이미지로 변환하고 GPT를 통해 마크다운으로 해석"""
@@ -276,7 +280,7 @@ class PDFParser:
         """.strip()
 
     def chat_with_gpt(self, images_b64: List[str], prompt_text: str, temperature: float = 0.2,
-                      max_tokens: int = 1200) -> str:
+                      max_tokens: int = 1200, ocr_mode: bool = False) -> str:
         """GPT API 호출"""
         if OpenAI is None:
             raise RuntimeError("openai package not available. Please `pip install openai` and try again.")
@@ -286,13 +290,23 @@ class PDFParser:
         for b64 in images_b64:
             content.append({"type": "image_url", "image_url": {"url": b64}})
 
-        resp = client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": content}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return resp.choices[0].message.content.strip()
+        if ocr_mode:
+            resp = client.chat.completions.parse(
+                model=self.model,
+                messages=[{"role": "user", "content": content}],
+                response_format=OCRdata,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.parsed.text.strip()
+        else:
+            resp = client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": content}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content.strip()
 
     def save_markdown(self, path: str, text: str):
         """마크다운 파일 저장"""
@@ -464,7 +478,15 @@ class PDFParser:
             rough_text = re.sub(r"\s+", " ", rough_text).strip()
 
             if len(rough_text) < 25:
-                continue
+                # 이미지로만 구성되었을 가능성을 염두하여, GPT 호출
+                rough_text = self.chat_with_gpt(images_b64=[b64],
+                    prompt_text="""이미지에 있는 텍스트를 음역해 주세요.
+                     텍스트가 잘 읽히지 않으면, 이미지를 먼저 보정한 후에 텍스트를 추측해 보세요.
+                     이미지의 대비를 높이거나, 회전시키거나, 기울기 또는 원근 보정을 적용하여 더 쉽게 읽을 수도 있습니다.
+                     단어의 의미를 통해 추측을 수정하기 전에, 이미지에 있는 글자들을 최대한 정확하게 읽었는지 확인하세요."""
+                                                )
+                if len(rough_text) < 25:
+                    continue
 
             prompt_text = self.build_prompt_page(page_no_human, rough_text)
 

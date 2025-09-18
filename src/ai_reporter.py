@@ -575,7 +575,7 @@ class AIReporter:
         csv_path = self.output_dir / f"chart_data_{filename}.csv"
         
         try:
-            with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            with open(csv_path, 'w', newline='', encoding='CP949') as csvfile:
                 writer = csv.writer(csvfile)
                 
                 # 헤더 작성
@@ -611,8 +611,7 @@ class AIReporter:
         filename = re.sub(r'[^a-zA-Z0-9가-힣_]', '_', title.lower())[:20]
         
         # CSV 파일로 차트 데이터 저장
-        self._save_chart_data_to_csv(chart_data, title, suggestion.description)
-        
+        #self._save_chart_data_to_csv(chart_data, title, suggestion.description)
         return self.make_chart(
             chart_type=chart_type,
             data=chart_data,
@@ -704,7 +703,7 @@ class AIReporter:
                 if relevant_images:
                     integrated_content += "\n\n### 참고 자료\n\n"
                     for img_id in relevant_images:
-                        img_path = f"./src/data/summary/images/{img_id}.png"
+                        img_path = f"./src/data/{self.fncode}_summary/images/{img_id}.png"
                         integrated_content += f"![{img_id}]({img_path})\n\n"
                         # 이미지 설명도 간단히 추가
                         desc_lines = image_descriptions[img_id].split('\n')
@@ -771,7 +770,7 @@ class AIReporter:
         return report_path
 
 
-def main(fncode):
+def run(fncode):
     """메인 실행 함수"""
     try:
         reporter = AIReporter(fncode)
@@ -794,4 +793,4 @@ def main(fncode):
 
 
 if __name__ == "__main__":
-    main("A095340")
+    run("A418470")

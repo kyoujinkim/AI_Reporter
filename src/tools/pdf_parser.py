@@ -376,7 +376,7 @@ class PDFParser:
 
         # 페이지별 요약 생성
         if generate_page_summaries:
-            self._generate_page_summaries(pdf_path, doc, img_root, md_root, out_dir, total_pages, start_page, end_page, max_pages, dry_run)
+            self._generate_page_summaries(pdf_path, doc, img_root, md_root, total_pages, start_page, end_page, max_pages, dry_run)
 
         doc.close()
 
@@ -438,7 +438,6 @@ class PDFParser:
                                  doc,
                                  img_root: str,
                                  md_root: str,
-                                 out_dir: str,
                                  total_pages: int,
                                  start_page: int,
                                  end_page: int,

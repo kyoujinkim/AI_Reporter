@@ -79,6 +79,9 @@ class NewsAnalyst:
         with open(f'{out_dir}/news_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(analysis)
 
+        print(f'\n뉴스 분석 결과:\n{analysis[:500]}...\n')
+
+
         return analysis
 
     def _load_domain_lists(self):
@@ -86,10 +89,9 @@ class NewsAnalyst:
         try:
             # config 디렉토리의 절대 경로 계산
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            config_dir = os.path.join(current_dir, 'src/data/config')
 
-            include_domains_path = os.path.join(config_dir, 'include_domains.json')
-            exclude_domains_path = os.path.join(config_dir, 'exclude_domains.json')
+            include_domains_path = current_dir + '/data/config/include_domains.json'
+            exclude_domains_path = current_dir + '/data/config/exclude_domains.json'
 
             # include_domains 로드
             with open(include_domains_path, 'r', encoding='utf-8') as f:

@@ -51,4 +51,7 @@ class BusinessAnalyst:
             with open(f'{out_dir}/company_business.md', 'w', encoding='utf-8') as md_file:
                 md_file.write(summarize.summary)
 
+        # print 500 string of summary
+        print(f"\n사업보고서 분석 결과:\n{summarize.summary[:500]}...\n")
+
         return summarize

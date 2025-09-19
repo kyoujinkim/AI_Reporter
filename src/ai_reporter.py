@@ -53,16 +53,16 @@ class ChartSuggestions(BaseModel):
 class AIReporter:
     """AI 기반 기업 실적 분석 및 보고서 생성 시스템"""
     
-    def __init__(self, fncode, config_path: str = "D:/config.ini"):
+    def __init__(self, code, config_path: str = "D:/config.ini"):
         """
         Args:
             config_path: OpenAI API 키가 포함된 설정 파일 경로
         """
-        self.fncode = fncode
+        self.fncode = 'A'+code
         self.config_path = config_path
         self.data_dir = Path("./data")
-        self.summary_dir = self.data_dir / f"{fncode}_summary"
-        self.output_dir = Path(f"./output/{fncode}")
+        self.summary_dir = self.data_dir / f"{self.fncode}_summary"
+        self.output_dir = Path(f"./output/{self.fncode}")
         
         # 디렉터리 생성
         self.output_dir.mkdir(exist_ok=True)
@@ -146,6 +146,7 @@ class AIReporter:
             'ir_summary': self.summary_dir / 'ir_summary.md',
             'consensus_analysis': self.summary_dir / 'consensus_analysis.md',
             'news_analysis': self.summary_dir / 'news_analysis.md',
+            'estimate_analysis': self.summary_dir / 'estimate_analysis.md',
         }
         
         for key, file_path in required_files.items():
@@ -164,7 +165,7 @@ class AIReporter:
     def _load_image_descriptions(self) -> Dict[str, str]:
         """이미지별 설명 파일들 로드"""
         descriptions = {}
-        markdown_dir = self.summary_dir / 'markdown'
+        markdown_dir = self.summary_dir / 'ir/markdown'
         
         if markdown_dir.exists():
             for md_file in markdown_dir.glob('*.md'):
@@ -282,15 +283,19 @@ class AIReporter:
         
         # 미래 컨센서스 데이터 포함
         consensus_data = data.get('consensus_analysis', '데이터 없음')
-        
+        estimation_data = data.get('estimate_analysis', '데이터 없음')
+
         base_prompt = f"""
         다음 정보를 바탕으로 다음분기 실적에 대한 시나리오를 생성하세요:
 
         **현재 실적 분석:**
         {analysis_result}
 
-        **다음분기 컨센서스 분석:**
+        **애널리스트의 다음분기 컨센서스 분석:**
         {consensus_data}
+        
+        **AI Agent의 다음분기 컨센서스 분석:**
+        {estimation_data}
 
         **기업 기본 정보:**
         {data.get('company_business', '데이터 없음')}
@@ -647,6 +652,7 @@ class AIReporter:
         3. 실적 분석 상세
         4. 시장 및 뉴스 동향 분석
         5. 다음분기 시나리오별 분석 (표 형식과 해설 문단 포함)
+        - 주의사항: 실적 추정치는 낙관적 > 중립적 > 비관적 순이어야 함
         6. 리스크 요인
         7. 결론
 
@@ -695,15 +701,23 @@ class AIReporter:
             if is_conclusion or i == len(sections) - 1:  # 결론 섹션이거나 마지막 섹션인 경우
                 # 전체 보고서 내용을 기준으로 이미지 선택
                 full_report_text = report_content
-                relevant_images = self._select_relevant_images(
-                    full_report_text, "종합 분석", image_descriptions
-                )
+                # 간혹 이미지가 선택되지 않는 경우를 대비해 최대 2회 시도
+                counter = 0
+                while counter < 2:
+                    relevant_images = self._select_relevant_images(
+                        full_report_text, "종합 분석", image_descriptions
+                    )
+                    if relevant_images:
+                        break
+                    else:
+                        print("Warning: 관련 이미지가 선택되지 않아 재시도 중...")
+                        counter += 1
                 
                 # 관련 이미지가 있으면 섹션 끝에 추가
                 if relevant_images:
                     integrated_content += "\n\n### 참고 자료\n\n"
                     for img_id in relevant_images:
-                        img_path = f"./src/data/{self.fncode}_summary/images/{img_id}.png"
+                        img_path = f"./src/data/{self.fncode}_summary/ir/images/{img_id}.png"
                         integrated_content += f"![{img_id}]({img_path})\n\n"
                         # 이미지 설명도 간단히 추가
                         desc_lines = image_descriptions[img_id].split('\n')
@@ -730,33 +744,33 @@ class AIReporter:
         
     def run_full_analysis(self) -> str:
         """전체 분석 프로세스 실행"""
-        print("🚀 AI Reporter 시작...")
+        print("\n🚀 AI Reporter 시작...")
         
         # 1. 데이터 로드
-        print("📊 데이터 로딩...")
+        print("\n📊 데이터 로딩...")
         data = self.load_data()
 
         # 2. 실적 분석
-        print("🔍 실적 성과 분석...")
+        print("\n🔍 실적 성과 분석...")
         analysis_result = self.analyze_earnings_performance(data)
         
         # 3. 시나리오 생성
-        print("🎯 시나리오 생성...")
+        print("\n🎯 시나리오 생성...")
         scenarios = self.generate_scenarios(data, analysis_result)
         
         # 4. 최종 보고서 생성 (뉴스 분석 포함)
-        print("📝 보고서 생성...")
+        print("\n📝 보고서 생성...")
         report = self.generate_report(analysis_result, scenarios, None, data)
         
         # 5. 보고서 기반 차트 생성
-        print("📈 보고서 기반 차트 생성...")
+        print("\n📈 보고서 기반 차트 생성...")
         charts = self._generate_charts_from_report(
             report, data, data.get('image_descriptions', {})
         )
         
         # 6. 차트가 생성되었다면 보고서에 추가 (위치 정보만)
         if charts:
-            print(f"✅ {len(charts)}개의 차트가 생성되었습니다.")
+            print(f"\n✅ {len(charts)}개의 차트가 생성되었습니다.")
             chart_section = "\n\n## 추가 차트 분석\n\n"
             for i, chart_info in enumerate(charts, 1):
                 chart_section += f"### 차트 {i}\n{chart_info}\n\n"
@@ -765,32 +779,32 @@ class AIReporter:
         # 7. 최종 보고서 저장
         report_path = self.save_report(report)
         
-        print(f"✅ 분석 완료! 보고서 저장: {report_path}")
+        print(f"\n✅ 분석 완료! 보고서 저장: {report_path}")
         
         return report_path
 
 
-def run(fncode):
-    """메인 실행 함수"""
-    try:
-        reporter = AIReporter(fncode)
-        report_path = reporter.run_full_analysis()
-        
-        print(f"\n🎉 AI Reporter 분석이 완료되었습니다!")
-        print(f"📄 보고서 경로: {report_path}")
-        
-        # 보고서 내용 미리보기
-        with open(report_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-            print("\n" + "="*50)
-            print("보고서 미리보기 (처음 500자)")
-            print("="*50)
-            print(content[:500] + "...")
-            
-    except Exception as e:
-        print(f"❌ 오류 발생: {e}")
-        raise
+    def run(self):
+        """메인 실행 함수"""
+        try:
+            report_path = self.run_full_analysis()
+
+            print(f"\n🎉 AI Reporter 분석이 완료되었습니다!")
+            print(f"📄 보고서 경로: {report_path}")
+
+            # 보고서 내용 미리보기
+            with open(report_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                print("\n" + "="*50)
+                print("보고서 미리보기 (처음 500자)")
+                print("="*50)
+                print(content[:500] + "...")
+
+        except Exception as e:
+            print(f"❌ 오류 발생: {e}")
+            raise
 
 
 if __name__ == "__main__":
-    run("A418470")
+    reporter = AIReporter("095340")
+    reporter.run()

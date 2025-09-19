@@ -1,4 +1,5 @@
 import os
+from glob import glob
 
 import pandas as pd
 
@@ -31,39 +32,47 @@ class ConsensusAnalyst:
             out_dir = f'./data/A{code}_summary'
 
         print(f"미래 가이던스 분석: {company_info['corp_name']} ({code})")
+        print(glob(f'{out_dir}/*'))
 
         try:
-            # future sheet 읽기
-            future_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='future', header=9)
-            future_data.index = future_data['Period']
-            future_data = future_data.pivot(columns='Name', values=future_data.columns[-1:])
-            future_data.columns = future_data.columns.droplevel(0) + '(백만원)'
-
-            # 데이터가 비어있는지 확인
-            if future_data.empty:
-                print("Warning: Future sheet is empty")
-                return "미래 가이던스 데이터가 없습니다."
-
-            # 데이터 전처리 - NaN 값 처리
-            future_data = future_data.dropna(how='all')  # 모든 값이 NaN인 행 제거
-            future_data = future_data.fillna('-')  # 남은 NaN을 '-'로 대체
-
             # read earning_report.md file
             with open(f'{out_dir}/earnings_report.md', 'r', encoding='utf-8') as md_file:
                 earnings_analysis = md_file.read()
 
+            # past sheet 읽기
             sales_past_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='sales', header=9, index_col=1).iloc[:, -1:]
             op_past_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='op', header=9, index_col=1).iloc[:, -1:]
             income_past_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='income', header=9, index_col=1).iloc[:, -1:]
             past_data = pd.concat([sales_past_data, op_past_data, income_past_data], axis=1)
             past_data.columns = ['매출액(백만원)', '영업이익(백만원)', '지배순이익(백만원)']
 
+            # future sheet 읽기
+            future_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='future', header=9)
+            future_data.index = future_data['Period']
+            future_data = future_data.pivot(columns='Name', values=future_data.columns[-1:])
+            future_data.columns = future_data.columns.droplevel(0) + '(백만원)'
+
+            # 데이터 전처리 - NaN 값 처리
+            future_data = future_data.dropna(how='all')  # 모든 값이 NaN인 행 제거
+            future_data = future_data.fillna('-')  # 남은 NaN을 '-'로 대체
+
+            if future_data.empty:
+                print("Warning: Future sheet is empty")
+                future_analysis = "미래 가이던스 데이터가 없습니다."
+                # create out_dir if not exists
+                os.makedirs(out_dir, exist_ok=True)
+                with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
+                    md_file.write(future_analysis)
+                return future_analysis
+            else:
+                future_data_md = future_data.to_markdown()
+
             # 미래 가이던스 분석 프롬프트 생성 - 수치 중심 분석
             future_analysis_prompt = f"""
             회사명: {company_info['corp_name']}
     
             [다음 분기 가이던스 데이터]
-            {future_data.to_markdown()}
+            {future_data_md}
     
             [현재 분기 실적 발표 데이터]
             {earnings_analysis}
@@ -122,6 +131,9 @@ class ConsensusAnalyst:
             os.makedirs(out_dir, exist_ok=True)
             with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
                 md_file.write(future_analysis)
+
+            # print 500 characters of future_analysis
+            print(f"\n미래 가이던스 분석 결과:\n{future_analysis[:500]}...\n")
 
             return future_analysis
 

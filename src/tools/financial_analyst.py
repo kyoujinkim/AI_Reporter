@@ -63,4 +63,7 @@ class FinancialAnalyst:
         with open(f'{out_dir}/financial_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(financial_analysis)
 
+        # print 500 characters of financial analysis
+        print(f'\n재무제표 분석 결과:\n{financial_analysis[:500]}...\n')
+
         return financial_analysis

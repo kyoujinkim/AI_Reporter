@@ -32,6 +32,17 @@ class EarningsAnalyst:
         consensus_date = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='consensus', nrows=11, index_col=0).iloc[-1, -1]
         consensus = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='consensus', header=13, index_col=0)
         consensus.columns = f'{consensus_date}' + consensus.columns + ' 컨센서스(백만원)'
+        # 데이터 전처리 - NaN 값 처리
+        consensus = consensus.dropna(how='all')  # 모든 값이 NaN인 행 제거
+        consensus = consensus.fillna('-')  # 남은 NaN을 '-'로 대체
+        if consensus.empty:
+            print("Warning: Consensus sheet is empty")
+            consensus_ts_md = "과거 컨센서스 데이터가 없습니다."
+            consensus_md = "최근 컨센서스 데이터가 없습니다."
+        else:
+            consensus_ts_md = consensus.drop_duplicates().to_markdown()
+            consensus_md = consensus.iloc[-1:].to_markdown()
+
         earnings_text = self.earnings_report(code)
         # save earnings_text to md file
         with open(f'{out_dir}/earnings_report.md', 'w', encoding='utf-8') as md_file:
@@ -42,10 +53,10 @@ class EarningsAnalyst:
         회사명: {company_info['corp_name']}
     
         [과거 컨센서스 추이]
-        {consensus.drop_duplicates().to_markdown()}
+        {consensus_ts_md}
     
         [최근 컨센서스]
-        {consensus.iloc[-1:].to_markdown()}
+        {consensus_md}
     
         [실적발표]
         {earnings_text}
@@ -56,6 +67,7 @@ class EarningsAnalyst:
         3. 실적발표와 마지막 컨센서스 비교 (차이의 원인 및 규모)
         4. 주목할 만한 변화나 이슈 정리
         5. 필요한 경우 표/목록 형식으로 명확하게 제시
+        * 실적발표 수치는 반기 누적이 아닌 분기별 수치를 중심으로 분석
         """
 
         # 4. 한 번에 실행
@@ -69,6 +81,9 @@ class EarningsAnalyst:
         os.makedirs(out_dir, exist_ok=True)
         with open(f'{out_dir}/earnings_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(response)
+
+        # print 500 characters of response
+        print(f'\n실적발표 분석 결과:\n{response[:500]}...\n')
 
         return response
 
@@ -88,10 +103,16 @@ class EarningsAnalyst:
             print("잠정 실적발표가 없습니다.")
 
         # if no earnings report, search for the latest quarterly report
-        reports = self.dart.list(code, start=startdate.strftime("%Y-%m-%d"), kind='Q', final=True)
+        qreports = self.dart.list(code, start=startdate.strftime("%Y-%m-%d"), kind='Q', final=True)
+        areports = self.dart.list(code, start=startdate.strftime("%Y-%m-%d"), kind='A', final=True)
+        reports = pd.concat([qreports, areports])
+        # find (YYYY.MM) in report_nm and add new columns
+        reports['report_ym'] = reports['report_nm'].str.extract(r'(\d{4}\.\d{1,2})')[0]
+        reports = reports.sort_values('report_ym', ascending=False)
+        # if no report, raise error
         if reports.empty:
-            print("최근 분기보고서가 없습니다. 사업/반기보고서로 대체합니다.")
-            reports = self.dart.list(code, start=startdate.strftime("%Y-%m-%d"), kind='A', final=True)
+            print("최근 발표된 보고서가 없습니다.")
+            raise ValueError("최근 보고서가 없습니다.")
         latest_report = reports.sort_values('rcept_dt', ascending=False).iloc[0]
         text = self.get_income_statement(latest_report['rcept_no'])
 

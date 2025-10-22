@@ -32,7 +32,6 @@ class ConsensusAnalyst:
             out_dir = f'./data/A{code}_summary'
 
         print(f"미래 가이던스 분석: {company_info['corp_name']} ({code})")
-        print(glob(f'{out_dir}/*'))
 
         try:
             # read earning_report.md file
@@ -102,7 +101,7 @@ class ConsensusAnalyst:
                - 각 분기별 수익성 지표 변화 수치 계산
     
             출력 형식:
-            ## 1. 핵심 수치 요약
+            ## 1. 다음 분기 가이던스 데이터 요약
             - 매출: X백만원 (전년대비 +/-X.X%)
             - 영업이익: X백만원 (전년대비 +/-X.X%)
             - 순이익: X백만원 (전년대비 +/-X.X%)

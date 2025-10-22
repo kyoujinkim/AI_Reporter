@@ -27,8 +27,8 @@ tavily_api_key = config.get("tavily", "API_KEY_NH")
 
 if __name__ == "__main__":
 
-    code = '237690'
-    industry = "신약 개발 위탁 서비스"
+    code = '046890'
+    industry = "LED 제조"
 
     # print time info and calculate time spent
     start_time = time.time()
@@ -41,23 +41,23 @@ if __name__ == "__main__":
 
     # Read annual report and summarize
     business_analyst = BusinessAnalyst(openai_key=ai_key, dart_key=dart_key)
-    #company_business = business_analyst.run(company_info)
+    company_business = business_analyst.run(company_info)
 
     # Read financial data and analyze
     financial_analyst = FinancialAnalyst(openai_key=ai_key)
-    #financial_analysis = financial_analyst.run(company_info)
+    financial_analysis = financial_analyst.run(company_info)
 
     # Read earnings report
     earnings_analyst = EarningsAnalyst(openai_key=ai_key, dart_key=dart_key)
-    #earnings_analysis = earnings_analyst.run(company_info)
+    earnings_analysis = earnings_analyst.run(company_info)
 
-    # Read and analyzre future guidance data
+    # Read and analyze future guidance data
     consensus_analyst = ConsensusAnalyst(openai_key=ai_key)
-    #future_guidance_analysis = consensus_analyst.run(company_info)
+    future_guidance_analysis = consensus_analyst.run(company_info)
 
     # Read IR report
     ir_analyst = IrAnalyst(openai_key=ai_key)
-    #ir_summary = ir_analyst.run(company_info)
+    ir_summary = ir_analyst.run(company_info)
 
     # Search News from Tavily
     news_analyst = NewsAnalyst(openai_key=ai_key, tavily_key=tavily_api_key)

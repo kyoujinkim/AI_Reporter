@@ -97,8 +97,8 @@ class AIReporter:
             api_key=self.api_key,
             name="ScenarioAgent", 
             description="""당신은 기업 미래 시나리오 분석 전문가입니다.
-            현재 실적과 시장 상황을 바탕으로 낙관적, 중립적, 비관적 시나리오를 생성합니다.
-            각 시나리오별로 구체적인 수치와 근거를 제시하며, 실현 가능성을 평가합니다.""",
+            현재 실적과 시장 상황을 바탕으로 구체적인 시나리오를 생성합니다.
+            항목별로 구체적인 수치와 근거를 제시하며, 실현 가능성을 평가합니다.""",
             model="gpt-4.1-mini"
         )
         
@@ -277,11 +277,12 @@ class AIReporter:
         
         return self.analysis_agent.run(prompt, temperature=0.2)
         
-    def generate_scenarios(self, data: Dict[str, str], analysis_result: str) -> Dict[str, str]:
+    def generate_scenarios(self, data: Dict[str, str]) -> str:
         """다음분기 컨센서스 기준 시나리오 생성"""
         scenarios = {}
         
         # 미래 컨센서스 데이터 포함
+        analysis_result = data.get('analysis_result', '데이터 없음')
         consensus_data = data.get('consensus_analysis', '데이터 없음')
         estimation_data = data.get('estimate_analysis', '데이터 없음')
 
@@ -291,10 +292,10 @@ class AIReporter:
         **현재 실적 분석:**
         {analysis_result}
 
-        **애널리스트의 다음분기 컨센서스 분석:**
+        **애널리스트의 다음분기 컨센서스:**
         {consensus_data}
         
-        **AI Agent의 다음분기 컨센서스 분석:**
+        **AI의 다음분기 컨센서스:**
         {estimation_data}
 
         **기업 기본 정보:**
@@ -309,39 +310,22 @@ class AIReporter:
         **뉴스 분석:**
         {data.get('news_analysis', '데이터 없음')}
         """
+
+        # 시나리오
+        scenario_prompt = base_prompt + """
+        ** 다음분기 컨센서스 시나리오 생성 지침: **
+        위에 주어진 '애널리스트의 다음분기 컨센서스'는 기업 실적 발표 이전에 작성된 자료로 현재 뉴스를 반영하지 못하고 있습니다.
+        한편, 'Ai의 다음분기 컨센서스'는 최근 뉴스와 IR 발표를 반영하였으나, 애널리스트 추정치 대비해서는 수치가 정확하지 않을 가능성이 높습니다.
+        따라서 '현재 실적 분석'을 참고하여 컨센서스를 재조정할 필요가 있습니다. 복합적인 요인을 감안하여 재조정된 하나의 시나리오를 생성하세요.
         
-        # 낙관적 시나리오
-        optimistic_prompt = base_prompt + """
-        **낙관적 시나리오 (상향 조정) 생성 요청:**
-        - 현재 실적 분석 결과를 바탕으로 긍정적 요인들의 임팩트를 평가하여 적절한 상향 조정 폭을 결정하세요
-        - 다음분기 컨센서스 수치를 기준으로 분석된 긍정적 요인들이 실현될 경우의 성장 전망
-        - 구체적 수치 목표 제시 (매출, 영업이익, 순이익을 분석 근거에 따라 상향 조정)
-        - 상향 조정 근거, 조정 폭 결정 이유, 전제 조건 명시
-        - 조정 폭에 대해서는 각각의 근거들이 얼마나 기여했는지를 분해하여 설명
+        ** 주의사항 **
+        1. '애널리스트의 다음분기 컨센서스'와 'Ai의 다음분기 컨센서스'를 모두 참고하되, 현재 실적과 최근 뉴스, IR 발표를 반영하여 수치를 조정하세요.
+        2. 시나리오는 다음분기 매출액, 영업이익, 순이익에 대한 구체적인 수치를 포함해야하며, 범위 데이터로 제시하세요.
+        3. 시나리오 수치의 근거를 명확히 제시하세요.
+        4. 시나리오 수치는 현실적이어야 하며, 지나치게 낙관적이거나 비관적인 수치는 피하세요.
         """
-        
-        # 중립적 시나리오  
-        neutral_prompt = base_prompt + """
-        **중립적 시나리오 (컨센서스 수준) 생성 요청:**
-        - 분석 결과 현재 추세와 시장 상황을 고려하여 컨센서스 달성 가능성을 평가하세요
-        - 다음분기 컨센서스 수치 달성을 위한 조건 및 가능성 분석
-        - 현재 실적과 트렌드가 지속될 경우의 성장 전망
-        - 가장 가능성이 높은 시나리오로서 컨센서스 수치의 타당성 검토
-        """
-        
-        # 비관적 시나리오
-        pessimistic_prompt = base_prompt + """
-        **비관적 시나리오 (하향 조정) 생성 요청:**
-        - 현재 실적 분석에서 식별된 리스크 요인들의 영향도를 평가하여 적절한 하향 조정 폭을 결정하세요
-        - 다음분기 컨센서스 대비 부정적 요인들이 현실화될 경우의 성장 전망
-        - 하방 리스크를 반영한 구체적 수치 제시 (분석 근거에 기반한 조정)
-        - 하향 조정 근거, 조정 폭 결정 이유, 위험 요소 분석
-        - 조정 폭에 대해서는 각각의 근거들이 얼마나 기여했는지를 분해하여 설명
-        """
-        
-        scenarios['optimistic'] = self.scenario_agent.run(optimistic_prompt, temperature=0.3)
-        scenarios['neutral'] = self.scenario_agent.run(neutral_prompt, temperature=0.3)
-        scenarios['pessimistic'] = self.scenario_agent.run(pessimistic_prompt, temperature=0.3)
+
+        scenarios = self.scenario_agent.run(scenario_prompt, temperature=0.3)
         
         return scenarios
         
@@ -625,10 +609,12 @@ class AIReporter:
         )
         
         
-    def generate_report(self, analysis_result: str, scenarios: Dict[str, str], 
-                       charts: List[str] = None, data: Dict[str, str] = None,
-                        ) -> str:
+    def generate_report(self, data: Dict[str, str] = None,) -> str:
         """최종 보고서 생성 (이미지 및 뉴스 분석 포함)"""
+
+        analysis_result = data.get('analysis_result', '데이터 없음')
+        scenario = data.get('scenarios', '데이터 없음')
+        news = data.get('news_analysis', '데이터 없음')
 
         report_prompt = f"""
         다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요:
@@ -636,25 +622,29 @@ class AIReporter:
         **실적 분석 결과:**
         {analysis_result}
 
-        **시나리오 분석:**
-        **낙관적 시나리오:**
-        {scenarios.get('optimistic', '')}
-
-        **중립적 시나리오:**
-        {scenarios.get('neutral', '')}
-
-        **비관적 시나리오:**
-        {scenarios.get('pessimistic', '')}
+        **시나리오 분석 결과:**
+        {scenario}
+        
+        **뉴스 분석 결과:**
+        {news}
 
         **보고서 구성 요구사항:**
-        1. 제목: 회사명 + 실적 분석 리포트 + 날짜
+        1. 제목: 보고서 내용을 감안한 창의적 제목
+        2. 보고서 날짜
         2. 요약 (Executive Summary)
         3. 실적 분석 상세
-        4. 시장 및 뉴스 동향 분석
-        5. 다음분기 시나리오별 분석 (표 형식과 해설 문단 포함)
-        - 주의사항: 실적 추정치는 낙관적 > 중립적 > 비관적 순이어야 함
-        6. 리스크 요인
-        7. 결론
+        - 표 형식으로 실절 발표 내용 제시
+        - 실적이 예측치를 상회/하회한 이유 분석
+        - 각 요인별 구체적 영향도 (정량적 수치 포함)
+        - 예상치 못한 변수나 일회성 요인 식별
+        - 경영진 가이던스와 실제 결과 차이점 분석
+        - 투자자 관점에서의 시사점
+        4. 다음분기 시나리오(단일 시나리오) 분석
+        - 표 형식으로 시나리오 수치 제시
+        - 시나리오 수치의 항목별 분석과 근거 설명
+        - 시나리오 수치의 현실성 평가
+        - 투자자 관점에서의 시사점
+        5. 결론 및 투자 의견
 
         **출력 형식:** 완전한 마크다운 문서
         """
@@ -666,13 +656,6 @@ class AIReporter:
             report_content = self._integrate_images_into_report(
                 report_content, data['image_descriptions']
             )
-        
-        # 차트가 있다면 보고서에 추가 (위치 정보만)
-        if charts:
-            chart_section = "\n\n## 차트 분석\n\n"
-            for i, chart_info in enumerate(charts, 1):
-                chart_section += f"### 차트 {i}\n{chart_info}\n\n"
-            report_content += chart_section
             
         return report_content
         
@@ -753,14 +736,16 @@ class AIReporter:
         # 2. 실적 분석
         print("\n🔍 실적 성과 분석...")
         analysis_result = self.analyze_earnings_performance(data)
+        data['analysis_result'] = analysis_result  # 분석 결과 저장
         
         # 3. 시나리오 생성
         print("\n🎯 시나리오 생성...")
-        scenarios = self.generate_scenarios(data, analysis_result)
+        scenario = self.generate_scenarios(data)
+        data['scenarios'] = scenario
         
         # 4. 최종 보고서 생성 (뉴스 분석 포함)
         print("\n📝 보고서 생성...")
-        report = self.generate_report(analysis_result, scenarios, None, data)
+        report = self.generate_report(data)
         
         # 5. 보고서 기반 차트 생성
         print("\n📈 보고서 기반 차트 생성...")

@@ -309,6 +309,21 @@ class MDToPPTXConverter:
         # Populate Slide 5: Conclusion
         self._populate_slide_5(sections)
 
+    def _clear_table_from_md(self, content: str) -> str:
+        """Remove markdown table syntax from content"""
+        lines = content.split('\n')
+        cleaned_lines = []
+        in_table = False
+
+        for line in lines:
+            if '|' in line and line.strip().startswith('|'):
+                in_table = True
+                continue
+            else:
+                if in_table:
+                    in_table = False
+            cleaned_lines.append(line)
+
     def _populate_slide_1(self, sections: Dict, title: str, date: str):
         """Populate Slide 1 with executive summary"""
         if len(self.converter.prs.slides) < 1:
@@ -317,18 +332,45 @@ class MDToPPTXConverter:
         slide = self.converter.prs.slides[0]
         print(f"[INFO] Populating Slide 1 (Executive Summary)...")
 
-        # Find summary section
-        summary_key = None
-        for key in sections.keys():
-            if '요약' in key or 'Executive Summary' in key:
-                summary_key = key
-                break
-
-        if not summary_key:
-            print("[WARNING] No summary section found")
-            return
-
+        summary_key = list(sections.keys())[0]
+        # Find summary sections
         summary_content = sections[summary_key]['content']
+        summary_subsections = sections[summary_key].get('subsections', {})
+
+        # subsections contains two sections. Summary and Keywords
+        subsection_key = list(summary_subsections.keys())
+        summary_text = summary_content + '\n' + summary_subsections.get(subsection_key[0], '')
+        summary_table = MarkdownParser.extract_tables(summary_text)
+        # if table exists, eliminate table part from summary_text
+        if summary_table:
+            summary_text = self._clear_table_from_md(summary_text)
+
+        keywords_text = summary_subsections.get(subsection_key[1], '')
+        keywords_table = MarkdownParser.extract_tables(keywords_text)
+        if keywords_table:
+            keywords_text = self._clear_table_from_md(keywords_text)
+
+        # add title box into slide
+        title_box_content = title
+        date_content = date
+        for shape in slide.shapes:
+            if hasattr(shape, 'text_frame') and 'Title' in shape.text:
+                title_box = shape
+            if hasattr(shape, 'text_frame') and 'Date' in shape.text:
+                date_box = shape
+
+
+
+        # Each keyword in keywords into text box
+        keyword_lines = [line.strip('-* ').strip() for line in keywords_text.split('\n')
+                        if line.strip() and (line.strip().startswith('-') or line.strip().startswith('*'))]
+        keyword_text = ', '.join(keyword_lines)
+        # Populate keywords text box
+        keyword_box = None
+        for shape in slide.shapes:
+            if hasattr(shape, 'text_frame') and 'Keywords' in shape.text:
+                keyword_box = shape
+                break
 
         # Extract tables and text
         tables = MarkdownParser.extract_tables(summary_content)
@@ -567,4 +609,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    converter = MDToPPTXConverter('data/config/template.pptx')
+    a = converter.convert('output/A095340/ai_report_A095340_20251030_155505.md'
+                          , 'output/A095340/test_report.pptx')
+    print(f"[SUCCESS] Conversion completed: {a}")

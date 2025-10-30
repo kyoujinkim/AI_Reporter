@@ -51,7 +51,7 @@ if __name__ == "__main__":
     earnings_analyst = EarningsAnalyst(openai_key=ai_key, dart_key=dart_key)
     earnings_analysis = earnings_analyst.run(company_info)'''
 
-    # Read and analyze future guidance dataㅌ
+    '''# Read and analyze future guidance dataㅌ
     consensus_analyst = ConsensusAnalyst(openai_key=ai_key)
     future_guidance_analysis = consensus_analyst.run(company_info)
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     # Read and Estimate next quarter earnings
     estimate_analyst = EstimateAnalyst(openai_key=ai_key)
-    earnings_estimation = estimate_analyst.run(company_info)
+    earnings_estimation = estimate_analyst.run(company_info)'''
 
     # Generate AI Report
     reporter = AIReporter(code)

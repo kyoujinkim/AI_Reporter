@@ -2,15 +2,57 @@
 Markdown to PowerPoint Converter
 Converts markdown reports to PowerPoint presentations using a template
 """
+import configparser
+import json
 import re
 import os
+from dataclasses import dataclass
+from pydantic import BaseModel
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from pptx import Presentation
-from pptx.util import Inches, Pt
+from pptx.enum.dml import MSO_FILL
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+from pptx.enum.dml import MSO_COLOR_TYPE
+from pptx.util import Inches, Cm, Pt
 from pptx.enum.text import PP_ALIGN
 from pptx.dml.color import RGBColor
 
+from src.tools.agents import Agent
+
+class ReportManager:
+    class keyword_table(BaseModel):
+        keynumber1: str
+        keyword1: str
+        detail1: str
+        keynumber2: str
+        keyword2: str
+        detail2: str
+        keynumber3: str
+        keyword3: str
+        detail3: str
+
+    class text_box(BaseModel):
+        content: str
+
+    def __init__(self, openai_key):
+        print("\n\n🤵리포트 내용을 포맷화하는 Product Manager를 불러옵니다.")
+        self.PMagent = Agent(
+            api_key=openai_key,
+            name="Format Product manager",
+            description="당신은 md 포맷의 리포트를 원하는 형식으로 전환하는 Product Manager입니다. 형식에 맞게 Contents 구성을 바꿔주세요.",
+            model="gpt-4.1-mini"
+        )
+
+    def run(self, content, format, additional_prompt=""):
+        prompt = f""" 입력된 Content의 내용을 형식에 맞게 구성을 바꿔주세요.
+        {additional_prompt}
+
+        # Content
+        - {content}
+        """
+
+        return self.PMagent.run_with_structured_format(prompt, format)
 
 class MarkdownParser:
     """Parse markdown content into structured sections"""
@@ -128,20 +170,6 @@ class MarkdownParser:
         return tables
 
     @staticmethod
-    def extract_bullet_points(content: str) -> List[str]:
-        """Extract bullet points from content"""
-        bullets = []
-        lines = content.split('\n')
-
-        for line in lines:
-            if line.strip().startswith('- '):
-                bullets.append(line.strip()[2:])
-            elif line.strip().startswith('* '):
-                bullets.append(line.strip()[2:])
-
-        return bullets
-
-    @staticmethod
     def extract_chart_references(content: str) -> List[Dict]:
         """Extract chart references from markdown"""
         charts = []
@@ -177,13 +205,54 @@ class MarkdownParser:
         return charts
 
 
-class PowerPointConverter:
+class ThemeColor:
     """Convert parsed markdown to PowerPoint"""
+    darkblue = RGBColor(0x06, 0x43, 0x67)
+    blue = RGBColor(0x00, 0x5B, 0x8E)
+    lightblue = RGBColor(0x69, 0x98, 0xBD)
+    red = RGBColor(0xFF, 0x00, 0x00)
 
-    def __init__(self, template_path: str):
-        self.prs = Presentation(template_path)
 
-    def add_text_to_shape(self, shape, text: str, font_size: int = 12, bold: bool = False):
+class ThemeMargin:
+    """Set Theme Margin left, right, top, bottom"""
+    standard = (0.2, 0.2, 0.15, 0.15)
+    wide = (0.2, 0.2, 0.2, 0.2)
+    narrow = (0.1, 0.1, 0, 0)
+
+
+class MDToPPTXConverter:
+    """Main converter class"""
+
+    def __init__(self, template_path: str, shape_path: str, config_path: str = "D:/config.ini"):
+        self.template_prs = self._load(template_path)
+        self.shape_prs = self._load(shape_path)
+        self.parser = None
+        self.converter = None
+        self.themecolor = ThemeColor()
+        self.thememargin = ThemeMargin()
+
+        # load API key and AI agent
+        self.config_path = config_path
+        self._load_config()
+        self.pm = ReportManager(openai_key=self.api_key)
+
+    def _load_config(self):
+        """설정 파일에서 API 키 로드"""
+        config = configparser.ConfigParser()
+        config.read(self.config_path, encoding='utf-8')
+        self.api_key = config.get("openai", "API_KEY")
+
+    @staticmethod
+    def _load(template_path: str):
+        return Presentation(template_path)
+
+    @staticmethod
+    def _save(prs, output_path: str):
+        """Save the presentation"""
+        prs.save(output_path)
+
+    @staticmethod
+    def _add_text_to_shape(shape, text: str, font: str = 'Malgun Gothic', font_size: int = 12, bold: bool = False):
         """Add text to a shape"""
         if hasattr(shape, 'text_frame'):
             text_frame = shape.text_frame
@@ -193,9 +262,10 @@ class PowerPointConverter:
             run.text = text
             run.font.size = Pt(font_size)
             run.font.bold = bold
-            run.font.name = 'Malgun Gothic'
+            run.font.name = font
 
-    def populate_table(self, table_shape, data: List[List[str]]):
+    @staticmethod
+    def _populate_table(table_shape, data: List[List[str]]):
         """Populate a table shape with data"""
         if not hasattr(table_shape, 'table'):
             return
@@ -222,33 +292,6 @@ class PowerPointConverter:
                         run.font.size = Pt(10)
                         run.font.name = 'Malgun Gothic'
 
-    def add_slide_with_content(self, title: str, content: str, tables: List = None, bullets: List = None):
-        """Add a new slide with content"""
-        # Use blank layout or title-content layout
-        slide_layout = self.prs.slide_layouts[1] if len(self.prs.slide_layouts) > 1 else self.prs.slide_layouts[0]
-        slide = self.prs.slides.add_slide(slide_layout)
-
-        # Add title
-        if slide.shapes.title:
-            slide.shapes.title.text = title
-
-        # Add content to text boxes or create new ones
-        # This is a simplified version - you may need to customize based on your template
-        return slide
-
-    def save(self, output_path: str):
-        """Save the presentation"""
-        self.prs.save(output_path)
-
-
-class MDToPPTXConverter:
-    """Main converter class"""
-
-    def __init__(self, template_path: str):
-        self.template_path = template_path
-        self.parser = None
-        self.converter = None
-
     def convert(self, md_file_path: str, output_path: str = None) -> str:
         """
         Convert markdown file to PowerPoint presentation
@@ -268,9 +311,6 @@ class MDToPPTXConverter:
         self.parser = MarkdownParser(md_content)
         parsed_data = self.parser.parse()
 
-        # Initialize converter
-        self.converter = PowerPointConverter(self.template_path)
-
         # Populate slides based on parsed data
         self._populate_slides(parsed_data, md_file_path)
 
@@ -280,7 +320,7 @@ class MDToPPTXConverter:
             output_path = str(md_path.parent / f"{md_path.stem}.pptx")
 
         # Save presentation
-        self.converter.save(output_path)
+        self._save(self.template_prs, output_path)
 
         return output_path
 
@@ -309,27 +349,141 @@ class MDToPPTXConverter:
         # Populate Slide 5: Conclusion
         self._populate_slide_5(sections)
 
-    def _clear_table_from_md(self, content: str) -> str:
-        """Remove markdown table syntax from content"""
+    def _split_md(self, content: str) -> str:
+        """Split markdown by text and table syntax from contet"""
         lines = content.split('\n')
-        cleaned_lines = []
-        in_table = False
 
+        split_lines = []
+        tmp_content = ''
+        in_table = False
         for line in lines:
-            if '|' in line and line.strip().startswith('|'):
+            if '|' in line and line.strip().startswith('|') and in_table is False:
+                if tmp_content:
+                    split_lines.append({'text':tmp_content})
                 in_table = True
-                continue
+                tmp_content = line
+            elif not ('|' in line) and not line.strip().startswith('|') and in_table is True:
+                if tmp_content:
+                    tmp_content = MarkdownParser.extract_tables(tmp_content)
+                    split_lines.append({'table': tmp_content})
+                in_table = False
+                tmp_content = line
             else:
-                if in_table:
-                    in_table = False
-            cleaned_lines.append(line)
+                if tmp_content:
+                    tmp_content = tmp_content + '\n' + line
+                else:
+                    tmp_content = line
+
+        if in_table:
+            split_lines.append({'table':tmp_content})
+        else:
+            split_lines.append({'text':tmp_content})
+
+        return split_lines
+
+    @staticmethod
+    def _find_shape_by_name(slide, name: str):
+        """Find shape by name in a slide"""
+        for shape in slide.shapes:
+            if shape.name == name:
+                return shape
+        return None
+
+    @staticmethod
+    def _check_color_type(color_obj):
+        if color_obj.type == MSO_COLOR_TYPE.RGB:
+            # 1. 타입이 RGB인 경우 (예: "FF0000")
+            # 이 경우에만 .rgb 속성이 존재합니다.
+            type = 'rgb'
+            color_info = color_obj.rgb
+
+        elif color_obj.type == MSO_COLOR_TYPE.SCHEME:
+            # 2. 타입이 SCHEME인 경우 (지금 겪으신 문제)
+            # .rgb 대신 .theme_color 속성을 사용합니다.
+            type = 'scheme'
+            color_info = color_obj.theme_color
+
+        else:
+            # 3. (기타) 타입이 AUTO(자동)인 경우
+            type = 'auto'
+            color_info = None
+
+        return type, color_info
+
+    @staticmethod
+    def _convert_shape_text(shape, text: str, is_cell:bool=False) -> bool:
+        """Convert cell text with formatting"""
+        # 1. Get the TextFrame
+        tf = shape.text_frame
+
+        # 2. Ensure there is at least one paragraph
+        if not tf.paragraphs:
+            tf.add_paragraph()
+
+        # 3. Get the first paragraph
+        p = shape.text_frame.paragraphs[0]
+
+        # 4. Ensure there is at least one run
+        if not p.runs:
+            p.add_run()
+
+        # 5. Set the text of the first run
+        p.runs[0].text = text
+
+        # 7. (CRITICAL) Delete all other runs (from index 1 onwards)
+        # This removes any leftover text from the original content
+
+        # We must loop from the last run (index len-1) down to the second run (index 1)
+        for i in range(len(p.runs) - 1, 0, -1):
+            r = p.runs[i]
+            # This is the "secret" way to remove a run.
+            # It uses the internal lxml element representation.
+            p._p.remove(r._r)
+
+        # --- Cleanup Step 2: Delete all other paragraphs from the text_frame ---
+        # Loop backwards from the last paragraph down to the second paragraph (index 1)
+        for i in range(len(tf.paragraphs) - 1, 0, -1):
+            p_to_remove = tf.paragraphs[i]
+            tf._txBody.remove(p_to_remove._p)  # Remove the paragraph element
+
+        '''font = shape.text_frame.paragraphs[0].runs[0].font
+        font_name = font.name
+        font_size = font.size
+        font_bold = font.bold
+        font_type, font_color = MDToPPTXConverter._check_color_type(font.color)
+        if is_cell:
+            font_margin = (shape.margin_left, shape.margin_right, shape.margin_top, shape.margin_bottom)
+        font_align = shape.text_frame.paragraphs[0].alignment
+
+        # assign new value
+        shape.text = text
+
+        # clear cell and re-apply font settings
+        font = shape.text_frame.paragraphs[0].font
+        shape.text_frame.paragraphs[0].alignment = font_align
+        font.name = font_name
+        font.size = font_size
+        font.bold = font_bold
+        if font_type == 'rgb':
+            font.color.rgb = font_color
+        elif font_type == 'scheme':
+            font.color.theme_color = font_color
+        else:
+            pass
+        if is_cell:
+            shape.margin_left = font_margin[0]
+            shape.margin_right = font_margin[1]
+            shape.margin_top = font_margin[2]
+            shape.margin_bottom = font_margin[3]'''
+
+        return True
 
     def _populate_slide_1(self, sections: Dict, title: str, date: str):
         """Populate Slide 1 with executive summary"""
-        if len(self.converter.prs.slides) < 1:
+        if len(self.template_prs.slides) < 1:
             return
 
-        slide = self.converter.prs.slides[0]
+        slide = self.template_prs.slides[0]
         print(f"[INFO] Populating Slide 1 (Executive Summary)...")
 
         summary_key = list(sections.keys())[0]
@@ -339,72 +493,36 @@ class MDToPPTXConverter:
 
         # subsections contains two sections. Summary and Keywords
         subsection_key = list(summary_subsections.keys())
-        summary_text = summary_content + '\n' + summary_subsections.get(subsection_key[0], '')
-        summary_table = MarkdownParser.extract_tables(summary_text)
-        # if table exists, eliminate table part from summary_text
-        if summary_table:
-            summary_text = self._clear_table_from_md(summary_text)
+        subsection_content = self._split_md(summary_subsections[subsection_key[0]])
+        subsection_keyword = self._split_md(summary_subsections[subsection_key[1]])
 
-        keywords_text = summary_subsections.get(subsection_key[1], '')
-        keywords_table = MarkdownParser.extract_tables(keywords_text)
-        if keywords_table:
-            keywords_text = self._clear_table_from_md(keywords_text)
+        subsection_keyword_formatted = self.pm.run(subsection_keyword, self.pm.keyword_table)
+        keyword_shape = self._find_shape_by_name(slide, 'keywords')
 
-        # add title box into slide
-        title_box_content = title
-        date_content = date
-        for shape in slide.shapes:
-            if hasattr(shape, 'text_frame') and 'Title' in shape.text:
-                title_box = shape
-            if hasattr(shape, 'text_frame') and 'Date' in shape.text:
-                date_box = shape
+        # change text inside keyword_shapes' table to subsection_keyword_formatted
+        if keyword_shape and hasattr(keyword_shape, 'table'):
+            table = keyword_shape.table
+            for i in range(3):
+                key_num = getattr(subsection_keyword_formatted, f'keynumber{i+1}', '')
+                keyword = getattr(subsection_keyword_formatted, f'keyword{i+1}', '')
+                detail = getattr(subsection_keyword_formatted, f'detail{i+1}', '')
 
+                if i < len(table.columns):
+                    if key_num:
+                        self._convert_shape_text(table.cell(0, i), key_num, True)
+                    if keyword:
+                        self._convert_shape_text(table.cell(1, i), keyword, True)
+                    if detail:
+                        self._convert_shape_text(table.cell(2, i), detail, True)
 
+        if len(subsection_content)>1:
+            subsection_content_formatted = self.pm.run(subsection_content, self.pm.text_box, "").content
+        else:
+            subsection_content_formatted = subsection_content[0]['text']
+        summary_shape = self._find_shape_by_name(slide, 'summary')
+        self._convert_shape_text(summary_shape, subsection_content_formatted)
 
-        # Each keyword in keywords into text box
-        keyword_lines = [line.strip('-* ').strip() for line in keywords_text.split('\n')
-                        if line.strip() and (line.strip().startswith('-') or line.strip().startswith('*'))]
-        keyword_text = ', '.join(keyword_lines)
-        # Populate keywords text box
-        keyword_box = None
-        for shape in slide.shapes:
-            if hasattr(shape, 'text_frame') and 'Keywords' in shape.text:
-                keyword_box = shape
-                break
-
-        # Extract tables and text
-        tables = MarkdownParser.extract_tables(summary_content)
-        bullets = MarkdownParser.extract_bullet_points(summary_content)
-
-        # Populate tables
-        table_shapes = [s for s in slide.shapes if hasattr(s, 'table')]
-        for i, table_data in enumerate(tables):
-            if i < len(table_shapes):
-                self.converter.populate_table(table_shapes[i], table_data)
-                print(f"  - Populated table {i+1} with {len(table_data)} rows")
-
-        # Find text boxes to populate
-        text_boxes = [s for s in slide.shapes if hasattr(s, 'text_frame') and
-                      s.shape_type in [1, 17]]  # AUTO_SHAPE or TEXT_BOX
-
-        # Get main content paragraphs (non-table, non-bullet)
-        lines = [line.strip() for line in summary_content.split('\n')
-                 if line.strip() and not line.strip().startswith('|')
-                 and not line.strip().startswith('-')
-                 and not line.strip().startswith('*')
-                 and not line.strip().startswith('#')]
-
-        # Populate text boxes with content
-        content_lines = [line for line in lines if len(line) > 20]  # Filter out short lines
-        if content_lines and text_boxes:
-            for i, text_box in enumerate(text_boxes[:len(content_lines)]):
-                if hasattr(text_box, 'text_frame'):
-                    text_box.text_frame.clear()
-                    p = text_box.text_frame.paragraphs[0]
-                    p.text = content_lines[i]
-                    p.font.size = Pt(11)
-                    p.font.name = 'Malgun Gothic'
-                    print(f"  - Populated text box {i+1}")
+        a = 1
 
     def _populate_slide_2(self, sections: Dict):
         """Populate Slide 2 with performance analysis"""
@@ -609,7 +727,7 @@ def main():
 
 
 if __name__ == '__main__':
-    converter = MDToPPTXConverter('data/config/template.pptx')
-    a = converter.convert('output/A095340/ai_report_A095340_20251030_155505.md'
+    converter = MDToPPTXConverter('data/config/template.pptx', 'data/config/template_shapes.pptx')
+    a = converter.convert('output/A095340/ai_report_A095340_20251030_165119.md'
                           , 'output/A095340/test_report.pptx')
     print(f"[SUCCESS] Conversion completed: {a}")

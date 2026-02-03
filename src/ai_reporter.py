@@ -22,6 +22,7 @@ import pandas as pd
 import requests
 
 from src.tools.agents import Agent
+from src.tools.human_interrupt import HumanEditor
 
 
 class ChartSuggestion(BaseModel):
@@ -78,6 +79,8 @@ class AIReporter:
         
         # 한글 폰트 설정 (차트 생성용)
         self._setup_korean_font()
+
+        self.human_editor = HumanEditor(openai_key, model)
         
     def _load_config(self):
         """설정 파일에서 API 키 로드"""
@@ -657,14 +660,17 @@ class AIReporter:
         """
         
         report_content = self.report_agent.run(report_prompt, temperature=0.2)
+
+        # human interaction for report review could be added here
+        estimation_md = self.human_editor.run(report_content)
         
         # 이미지 통합
         if data and 'image_descriptions' in data:
-            report_content = self._integrate_images_into_report(
-                report_content, data['image_descriptions']
+            estimation_md = self._integrate_images_into_report(
+                estimation_md, data['image_descriptions']
             )
             
-        return report_content
+        return estimation_md
         
     def _integrate_images_into_report(self, report_content: str, 
                                      image_descriptions: Dict[str, str]) -> str:

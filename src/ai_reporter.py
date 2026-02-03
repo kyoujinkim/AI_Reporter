@@ -12,6 +12,7 @@ CLAUDE.md에 정의된 요구사항에 따라 다음 기능을 제공:
 
 import configparser
 import csv
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Union
@@ -706,7 +707,13 @@ class AIReporter:
                 if relevant_images:
                     integrated_content += "\n\n### 참고 자료\n\n"
                     for img_id in relevant_images:
-                        img_path = f"./src/data/{self.fncode}_summary/ir/images/{img_id}.png"
+                        img_path = f"./data/{self.fncode}_summary/ir/images/{img_id}.png"
+                        # Copy and Save image to output directory
+                        src_img_path = Path(img_path)
+                        dest_img_path = self.output_dir / f"{img_id}.png"
+                        if src_img_path.exists():
+                            shutil.copy(src_img_path, dest_img_path)
+                            img_path = dest_img_path.name  # 상대 경로로 변경
                         integrated_content += f"![{img_id}]({img_path})\n\n"
                         # 이미지 설명도 간단히 추가
                         desc_lines = image_descriptions[img_id].split('\n')

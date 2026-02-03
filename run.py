@@ -99,7 +99,7 @@ if __name__ == "__main__":
     # Convert md into txt for human reading
     md_list = glob(f"./data/A{code}_summary/*.md")
     # create folder for txt files
-    txt_folder = f"./data/A{code}_summary_txt"
+    txt_folder = f"./output/A{code}"
     if not os.path.exists(txt_folder):
         os.makedirs(txt_folder)
     for md_file in md_list:

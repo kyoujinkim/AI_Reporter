@@ -45,7 +45,7 @@ class KeywordTable(BaseModel):
 class EarningData(BaseModel):
     '''
     Earning Data Structure
-    actual: 실제 실적 수치
+    actual: 실제 발표된 실적 수치
     consensus: 컨센서스 수치
     difference: 실제 실적과 컨센서스의 차이(%)
     '''

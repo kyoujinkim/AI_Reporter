@@ -44,7 +44,10 @@ class FinancialAnalyst:
         netdebt = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='netdebt', header=9, index_col=1).iloc[:, -1:]
         netdebt.columns = ['순부채비율(%)']
         # replace "N/A" or "(", ")" to "", and left only numeric value
-        netdebt['순부채비율(%)'] = netdebt['순부채비율(%)'].str.replace("N/A", "").str.replace("(", "").str.replace(")", "").apply(pd.to_numeric, errors='coerce')
+        try:
+            netdebt['순부채비율(%)'] = netdebt['순부채비율(%)'].str.replace("N/A", "").str.replace("(", "").str.replace(")", "").apply(pd.to_numeric, errors='coerce')
+        except:
+            pass
 
 
         # 1. 데이터 준비

@@ -580,7 +580,9 @@ class MDToPPTXConverter:
             for i, n in zip([1, 2, 3], ['sales', 'operating_profit', 'shareholders_net_profit']):
                 actual = getattr(sec2_1_formatted, n, '').actual
                 consensus = getattr(sec2_1_formatted, n, '').consensus
-                if 0 > actual > consensus:
+                if consensus == '' or consensus == 0:
+                    difference = 'N/A'
+                elif 0 > actual > consensus:
                     difference = f'적자축소({actual - consensus:,.0f})'
                 elif 0 > consensus > actual:
                     difference = f'적자확대({actual - consensus:,.0f})'

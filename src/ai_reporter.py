@@ -53,12 +53,14 @@ class ChartSuggestions(BaseModel):
 class AIReporter:
     """AI 기반 기업 실적 분석 및 보고서 생성 시스템"""
     
-    def __init__(self, code, config_path: str = "D:/config.ini"):
+    def __init__(self, code, name, market, model='gpt-4.1-mini', config_path: str = "D:/config.ini"):
         """
         Args:
             config_path: OpenAI API 키가 포함된 설정 파일 경로
         """
         self.fncode = 'A'+code
+        self.name = name
+        self.market = market
         self.config_path = config_path
         self.data_dir = Path("./data")
         self.summary_dir = self.data_dir / f"{self.fncode}_summary"
@@ -71,7 +73,7 @@ class AIReporter:
         self._load_config()
         
         # AI 에이전트 초기화
-        self._initialize_agents()
+        self._initialize_agents(model)
         
         # 한글 폰트 설정 (차트 생성용)
         self._setup_korean_font()
@@ -82,7 +84,7 @@ class AIReporter:
         config.read(self.config_path, encoding='utf-8')
         self.api_key = config.get("openai", "API_KEY")
         
-    def _initialize_agents(self):
+    def _initialize_agents(self, model):
         """AI 에이전트들 초기화"""
         self.analysis_agent = Agent(
             api_key=self.api_key,
@@ -90,7 +92,7 @@ class AIReporter:
             description="""당신은 기업 실적 분석 전문가입니다. 
             기업의 실적 발표와 기존 예측치를 비교 분석하고, 상회/하회 원인을 심층 분석합니다.
             정확한 데이터 해석과 논리적 분석을 제공하며, 투자자 관점에서 핵심 인사이트를 도출합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
         
         self.scenario_agent = Agent(
@@ -99,7 +101,7 @@ class AIReporter:
             description="""당신은 기업 미래 시나리오 분석 전문가입니다.
             현재 실적과 시장 상황을 바탕으로 구체적인 시나리오를 생성합니다.
             항목별로 구체적인 수치와 근거를 제시하며, 실현 가능성을 평가합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
         
         self.report_agent = Agent(
@@ -108,7 +110,7 @@ class AIReporter:
             description="""당신은 투자 보고서 작성 전문가입니다.
             분석 결과를 체계적이고 명확한 마크다운 형식의 보고서로 작성합니다.
             투자자가 이해하기 쉽게 구조화하며, 핵심 포인트를 강조합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
         
         self.image_selector_agent = Agent(
@@ -117,7 +119,7 @@ class AIReporter:
             description="""당신은 보고서에 적합한 이미지를 선택하는 전문가입니다.
             보고서 섹션 내용과 이미지 설명을 비교하여 가장 관련성이 높은 이미지를 선택합니다.
             각 섹션의 주제와 내용에 맞는 최적의 시각 자료를 추천합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
         
         self.chart_generator_agent = Agent(
@@ -126,7 +128,7 @@ class AIReporter:
             description="""당신은 보고서 데이터 시각화 전문가입니다.
             보고서 내용과 사용된 데이터, 이미지를 분석하여 추가적인 차트가 필요한지 판단합니다.
             투자자에게 유용한 차트 유형과 데이터를 추천하며, 차트별 제목과 설명을 제공합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
         
     def _setup_korean_font(self):
@@ -254,7 +256,7 @@ class AIReporter:
         1. 실적이 예측치를 상회/하회한 핵심 요인 3가지
         2. 각 요인별 구체적 영향도 (정량적 수치 포함)
         3. 예상치 못한 변수나 일회성 요인 식별
-        4. 경영진 가이던스와 실제 결과 차이점 분석
+        4. 경영진 발표 내용에서 하이라이트 분석
         5. 투자자 관점에서의 시사점
 
         **출력 형식:**
@@ -445,7 +447,7 @@ class AIReporter:
         1. 투자자 의사결정에 가장 도움되는 차트 우선
         2. 시나리오 비교, 실적 추이, 예측 vs 실제 등 핵심 차트 중심
         3. 차트 타입은 데이터 성격에 맞게 선택 (bar: 비교, line: 추이, pie: 구성비)
-        4. 최대 3개의 차트만 제안
+        4. 서로 다른 3개의 차트 제안
         
         텍스트에서 의미 있는 차트를 만들 수 있는 정보가 부족하다면 빈 배열을 반환하세요.
         """
@@ -617,7 +619,7 @@ class AIReporter:
         news = data.get('news_analysis', '데이터 없음')
 
         report_prompt = f"""
-        다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요:
+        다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요. 주어진 분석 결과를 바탕으로 하고, 독자적인 해석이나 추가 정보를 포함하지 마세요.:
 
         **실적 분석 결과:**
         {analysis_result}
@@ -638,13 +640,17 @@ class AIReporter:
         - 2.1. 실적 발표 주요 수치: 표 형식으로 실적 발표 내용 제시(정량적 수치 포함)
         - 2.2. 실적 상회/하회 원인 및 영향도 분석: 실적이 예측치를 상회/하회한 3가지 이유 분석. 각 요인별 구체적 영향도 서술(정량적 수치 포함)
         - 2.3. 일회성 및 특이 요인: 예상치 못한 변수나 일회성 요인 식별
-        - 2.4. 경영진 코멘트 분석: 경영진 발표 내용과 실제 결과 차이점 분석
-        - 2.5. 투자자 시사점: 투자자 관점에서의 시사점
+        - 2.4. 경영진 코멘트 분석: 경영진 발표 내용에서 하이라이트 분석
+        - 2.5. 투자자 시사점: [소제목 - 투자자 관점에서의 시사점] 4개 제시
         3. 다음분기 시나리오(단일 시나리오) 분석
         - 3.1. 다음분기 실적 예상 범위: 표 형식으로 시나리오 수치 제시
         - 3.2. 시나리오 수치 분석 및 근거: 시나리오 수치 항목별로 긍정적 요인과 부정적 요인 분석과 근거 서술
-        - 3.2. 투자자 시사점: 투자자 관점에서의 시사점
-        5. 결론 및 투자 의견
+        - 3.2. 투자자 시사점: [소제목 - 투자자 관점에서의 시사점] 4개 제시
+        4. 결론 및 투자 의견
+        - 4.1. 종합 결론: 실적 분석과 시나리오를 종합한 결론 도출. 최소 두 문단으로 서술
+        - 4.2. 투자포인트: 투자해야하는 핵심 포인트 4가지 제시
+        - 4.3. 주의포인트: 투자 시 유의해야 할 핵심 리스크 4가지 제시
+        - 4.4. 최종 평가: 투자자에게 권고하는 종합적인 투자 의견과 평가. 한 문단으로 서술
 
         **출력 형식:** 완전한 마크다운 문서
         """
@@ -716,7 +722,7 @@ class AIReporter:
         """보고서를 파일로 저장"""
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"ai_report_{self.fncode}_{timestamp}.md"
+            filename = f"aireport_{self.fncode}_{self.name}_{self.market}_{timestamp}.md"
             
         report_path = self.output_dir / filename
         
@@ -748,18 +754,18 @@ class AIReporter:
         report = self.generate_report(data)
         
         # 5. 보고서 기반 차트 생성
-        print("\n📈 보고서 기반 차트 생성...")
-        charts = self._generate_charts_from_report(
-            report, data, data.get('image_descriptions', {})
-        )
-        
+        #print("\n📈 보고서 기반 차트 생성...")
+        #charts = self._generate_charts_from_report(
+        #    report, data, data.get('image_descriptions', {})
+        #)
+
         # 6. 차트가 생성되었다면 보고서에 추가 (위치 정보만)
-        if charts:
-            print(f"\n✅ {len(charts)}개의 차트가 생성되었습니다.")
-            chart_section = "\n\n## 추가 차트 분석\n\n"
-            for i, chart_info in enumerate(charts, 1):
-                chart_section += f"### 차트 {i}\n{chart_info}\n\n"
-            report += chart_section
+        #if charts:
+        #    print(f"\n✅ {len(charts)}개의 차트가 생성되었습니다.")
+        #    chart_section = "\n\n## 추가 차트 분석\n\n"
+        #    for i, chart_info in enumerate(charts, 1):
+        #        chart_section += f"### 차트 {i}\n{chart_info}\n\n"
+        #    report += chart_section
         
         # 7. 최종 보고서 저장
         report_path = self.save_report(report)
@@ -788,6 +794,8 @@ class AIReporter:
         except Exception as e:
             print(f"❌ 오류 발생: {e}")
             raise
+
+        return report_path
 
 
 if __name__ == "__main__":

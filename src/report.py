@@ -27,8 +27,11 @@ tavily_api_key = config.get("tavily", "API_KEY_NH")
 
 if __name__ == "__main__":
 
-    code = '095340'
-    industry = "반도체 테스트 부품 기업"
+    code = '060370'
+    industry = '해저통신, 전력케이블 시공 및 유지보수'
+    consensus_flag = True
+    reasoning_model = 'gpt-5'
+    general_model = 'gpt-4.1'
 
     # print time info and calculate time spent
     start_time = time.time()
@@ -40,35 +43,39 @@ if __name__ == "__main__":
     company_info['industry'] = industry
 
     # Read annual report and summarize
-    '''business_analyst = BusinessAnalyst(openai_key=ai_key, dart_key=dart_key)
+    business_analyst = BusinessAnalyst(openai_key=ai_key, dart_key=dart_key, model=general_model)
     company_business = business_analyst.run(company_info)
 
     # Read financial data and analyze
-    financial_analyst = FinancialAnalyst(openai_key=ai_key)
+    financial_analyst = FinancialAnalyst(openai_key=ai_key, model=general_model)
     financial_analysis = financial_analyst.run(company_info)
 
     # Read earnings report
-    earnings_analyst = EarningsAnalyst(openai_key=ai_key, dart_key=dart_key)
-    earnings_analysis = earnings_analyst.run(company_info)'''
+    earnings_analyst = EarningsAnalyst(openai_key=ai_key, dart_key=dart_key, model=general_model)
+    earnings_analysis, consensus_flag = earnings_analyst.run(company_info)
 
-    '''# Read and analyze future guidance dataㅌ
-    consensus_analyst = ConsensusAnalyst(openai_key=ai_key)
+    # Read and analyze future guidance dataㅌ
+    consensus_analyst = ConsensusAnalyst(openai_key=ai_key, model=general_model)
     future_guidance_analysis = consensus_analyst.run(company_info)
 
     # Read IR report
-    ir_analyst = IrAnalyst(openai_key=ai_key)
+    ir_analyst = IrAnalyst(openai_key=ai_key, model=general_model)
     ir_summary = ir_analyst.run(company_info)
 
     # Search News from Tavily
-    news_analyst = NewsAnalyst(openai_key=ai_key, tavily_key=tavily_api_key)
+    news_analyst = NewsAnalyst(openai_key=ai_key, tavily_key=tavily_api_key, model=general_model)
     news_analysis = news_analyst.run(company_info)
 
     # Read and Estimate next quarter earnings
-    estimate_analyst = EstimateAnalyst(openai_key=ai_key)
-    earnings_estimation = estimate_analyst.run(company_info)'''
+    consensus_flag=False
+    if consensus_flag:
+        pass
+    else:
+        estimate_analyst = EstimateAnalyst(openai_key=ai_key, model=general_model)
+        earnings_estimation = estimate_analyst.run(company_info)
 
     # Generate AI Report
-    reporter = AIReporter(code)
+    reporter = AIReporter(code, model=reasoning_model)
     reporter.run()
 
     # print total time spent

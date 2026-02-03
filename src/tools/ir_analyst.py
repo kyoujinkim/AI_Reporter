@@ -3,16 +3,17 @@ from glob import glob
 
 from src.tools import pdf_parser, summarizer
 from src.tools.agents import Agent
+from src.tools.human_interrupt import HumanEditor
 
 
 class IrAnalyst:
-    def __init__(self, openai_key):
+    def __init__(self, openai_key, model="gpt-4.1-mini"):
         print("\n\n🤵IR 발표자료 분석가를 불러옵니다.")
         self.tableagent = Agent(
             api_key=openai_key,
             name="TableAgent",
             description="당신은 표를 분석하는 전문가입니다. 셀 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-            model="gpt-4.1-mini"
+            model=model
         )
         self.script_analysis_agent = Agent(
             api_key=openai_key,
@@ -20,15 +21,23 @@ class IrAnalyst:
             description=f"""
             당신은 IR 프레젠테이션 자료 요약본과 IR 발표 스크립트 요약본을 통합적으로 분석하는 AI 에이전트입니다.
             """,
-            model="gpt-4.1-mini"
+            model=model
         )
-        self.pdfparser = pdf_parser.PDFParser()
-        self.summarizer = summarizer.Summarizer(apikey=openai_key, chunk_tokens=3000, target_summary_tokens=1000)
+        self.human_editor = HumanEditor(openai_key, model)
+        self.pdfparser = pdf_parser.PDFParser(model=model)
+        self.summarizer = summarizer.Summarizer(apikey=openai_key, model=model, chunk_tokens=3000, target_summary_tokens=1000)
 
     def run(self, company_info, out_dir=None):
         code = company_info['stock_code']
         if out_dir is None:
             out_dir = f'./data/A{code}_summary'
+
+        # if IR analysis already exists, read and return
+        if os.path.exists(f'{out_dir}/ir_summary.md'):
+            print(f"IR 분석 결과가 이미 존재합니다. {out_dir}/ir_summary.md 파일을 불러옵니다.")
+            with open(f'{out_dir}/ir_summary.md', 'r', encoding='utf-8') as md_file:
+                summary = md_file.read()
+            return summary
 
         print(f"IR 보고서 분석: {company_info['corp_name']} ({code})")
 
@@ -62,6 +71,12 @@ class IrAnalyst:
                     markdown_content += file.read() + "\n\n"
             SCRIPT_summarize = self.summarizer.run_text(markdown_content, 4000)
             script_exist = True
+        elif os.path.exists(f'{out_dir}/SCRIPT.txt'):
+            print(f"IR.txt 파일이 존재합니다. IR 프레젠테이션 자료를 분석합니다.")
+            with open(f'{out_dir}/SCRIPT.txt', 'r', encoding='utf-8') as file:
+                script_content = file.read()
+            SCRIPT_summarize = self.summarizer.run_text(script_content, 4000)
+            script_exist = True
         else:
             script_exist = False
 
@@ -71,9 +86,9 @@ class IrAnalyst:
             
             1. 핵심 사업 및 제품/서비스: 회사의 주요 사업 영역과 핵심 제품/서비스는 무엇인가요?
             2. 시장 경쟁력: 시장에서 회사의 독점적인 강점은 무엇이며, 경쟁사와 비교했을 때의 차별점은 무엇인가요?
-            3. 재무 성과 및 성장 전략: 최근 재무 성과는 어떠하며, 향후 성장을 위한 구체적인 전략은 무엇인가요?
-            4. 투자 매력 포인트: 투자자들이 이 회사에 투자해야 하는 가장 강력한 이유는 무엇인가요? 프레젠테이션과 스크립트에서 강조된 주요 성장 동력(growth driver)을 중심으로 설명해 주세요.
-            5. 질의응답 예측: 투자자들이 궁금해할 만한 예상 질문 3가지와 각 질문에 대한 답변을 준비해 주세요.
+            3. 재무 성과: 최근 재무 성과의 주요 하이라이트는 무엇인가요? 긍정적인 요인과 부정적인 요인을 원인과 결과를 중심으로 구체적으로 설명해 주세요.
+            4. 성장 전략: 향후 성장을 위한 구체적인 전략은 무엇인가요?
+            5. 투자 매력 포인트: 투자자들이 이 회사에 투자해야 하는 가장 강력한 이유는 무엇인가요? 프레젠테이션과 스크립트에서 강조된 주요 성장 동력(growth driver)을 중심으로 설명해 주세요.
         
             # 입력 텍스트
             - IR 프레젠테이션 자료 요약: {IR_summarize.summary}
@@ -88,13 +103,12 @@ class IrAnalyst:
             print("IR.pdf와 SCRIPT.pdf 파일이 모두 존재하지 않습니다. IR 분석을 건너뜁니다.")
             return None
 
+        summary = self.human_editor.run(summary)
+
         # Save IR summary to markdown file
         # create out_dir if not exists
         os.makedirs(out_dir, exist_ok=True)
         with open(f'{out_dir}/ir_summary.md', 'w', encoding='utf-8') as md_file:
             md_file.write(summary)
-
-        # print summary
-        print(f'\nIR 자료 분석 결과:\n{summary[:500]}\n')
 
         return summary

@@ -1,5 +1,7 @@
 # this is a tool for managing agents
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
+import httpx
+http_client = httpx.Client(verify=False)
 
 # define the agent class
 class Agent:
@@ -9,29 +11,43 @@ class Agent:
         self.description = description
         self.messages = [{"role": "system", "content": self.description}]
         self.tools = tools if tools is not None else []
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, http_client=http_client)
 
-    def run(self, prompt, max_tokens=1000, temperature=0.7):
+    def add_message(self, role, content):
+        self.messages.append({"role": role, "content": content})
+
+    def run(self, prompt, temperature=0.7):
         self.messages.append({"role": "system", "content": prompt})
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-            #max_tokens=max_tokens,
-            temperature=temperature
-        )
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+                temperature=temperature
+            )
+        except BadRequestError:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+            )
         self.messages.append(response.choices[0].message)
 
         return response.choices[0].message.content
 
-    def run_with_structured_format(self, prompt, response_format, max_tokens=1000, temperature=0.7):
+    def run_with_structured_format(self, prompt, response_format, temperature=0.7):
         self.messages.append({"role": "system", "content": prompt})
-        response = self.client.responses.parse(
+        try:
+            response = self.client.responses.parse(
             model=self.model,
             input=self.messages,
-            #max_tokens=max_tokens,
             temperature=temperature,
             text_format=response_format
-        )
+            )
+        except BadRequestError:
+            response = self.client.responses.parse(
+            model=self.model,
+            input=self.messages,
+            text_format=response_format
+            )
 
         return response.output_parsed
 

@@ -6,6 +6,7 @@ import requests
 from pydantic import BaseModel
 
 from src.tools.agents import Agent
+from src.tools.human_interrupt import HumanEditor
 
 
 class NewsRelevance(BaseModel):
@@ -26,7 +27,7 @@ class NewsKeywords(BaseModel):
 
 
 class NewsAnalyst:
-    def __init__(self, openai_key, tavily_key):
+    def __init__(self, openai_key, tavily_key, model='gpt-4.1-mini'):
         print("\n\n🕵️‍♂️기업뉴스 분석가를 불러옵니다.")
         self.openai_key = openai_key
         self.tavily_key = tavily_key
@@ -37,7 +38,7 @@ class NewsAnalyst:
             description="""당신은 뉴스 분석 전문가입니다.
             기업 관련 뉴스와 산업 뉴스를 분석하여 실적 분석에 도움이 되는 인사이트를 도출합니다.
             시장 동향, 경쟁사 현황, 산업 트렌드 등을 파악하여 기업의 실적과 전망에 미치는 영향을 분석합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
 
         self.news_filter_agent = Agent(
@@ -46,7 +47,7 @@ class NewsAnalyst:
             description="""당신은 뉴스 관련성 평가 전문가입니다.
             뉴스 기사가 특정 기업이나 산업과 직접적인 관련이 있는지 평가하고 분류합니다.
             기업의 사업 분야, 경쟁사, 공급망, 규제 환경 등을 고려하여 관련성을 판단합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
 
         self.news_keyword_agent = Agent(
@@ -55,8 +56,10 @@ class NewsAnalyst:
             description="""당신은 뉴스 분석 및 키워드 추출 전문가입니다.
             수집된 뉴스를 분석하여 추가 탐색이 필요한 핵심 키워드와 주제를 식별합니다.
             시장 트렌드, 신기술, 규제 변화, 경쟁사 동향 등을 파악하여 심화 검색 방향을 제시합니다.""",
-            model="gpt-4.1-mini"
+            model=model
         )
+
+        self.human_editor = HumanEditor(openai_key, model)
 
     def run(self, company_info, company_business: str = None, out_dir=None) -> str:
         code = company_info['stock_code']
@@ -64,6 +67,12 @@ class NewsAnalyst:
         company_name = company_info['corp_name']
         if out_dir is None:
             out_dir = f'./data/A{code}_summary'
+
+        # if news analysis already exists, load and return
+        if os.path.exists(f'{out_dir}/news_analysis.md'):
+            with open(f'{out_dir}/news_analysis.md', 'r', encoding='utf-8') as md_file:
+                return md_file.read()
+
         if company_business is None:
             with open(f'{out_dir}/company_business.md', 'r', encoding='utf-8') as md_file:
                 company_business = md_file.read()
@@ -73,14 +82,13 @@ class NewsAnalyst:
         news_data = self._search_news_with_tavily(company_name, industry, company_business)
         analysis = self._analyze_news_impact(news_data, company_business)
 
+        analysis = self.human_editor.run(analysis)
+
         # Save news analysis to markdown file
         # create out_dir if not exists
         os.makedirs(out_dir, exist_ok=True)
         with open(f'{out_dir}/news_analysis.md', 'w', encoding='utf-8') as md_file:
             md_file.write(analysis)
-
-        print(f'\n뉴스 분석 결과:\n{analysis[:500]}...\n')
-
 
         return analysis
 
@@ -211,7 +219,7 @@ class NewsAnalyst:
             )
 
         # 뉴스 내용을 요약하여 키워드 추출용 텍스트 생성
-        news_summary = "\n".join(news_articles[:10])  # 최대 10개 기사만 사용
+        news_summary = "\n".join(news_articles)
 
         keyword_prompt = f"""
         다음 뉴스들을 분석하여 추가적인 심화 탐색이 필요한 핵심 키워드들을 추출하세요:

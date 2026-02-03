@@ -4,17 +4,19 @@ from glob import glob
 import pandas as pd
 
 from src.tools.agents import Agent
+from src.tools.human_interrupt import HumanEditor
 
 
 class ConsensusAnalyst:
-    def __init__(self, openai_key):
+    def __init__(self, openai_key, model="gpt-4.1-mini"):
         print("\n\n👩‍🏫컨센서스 분석가를 불러옵니다.")
         self.tableagent = Agent(
             api_key=openai_key,
             name="TableAgent",
             description="당신은 표를 분석하는 전문가입니다. 셀 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
-            model="gpt-4.1-mini"
+            model=model
         )
+        self.human_editor = HumanEditor(openai_key, model)
 
     def run(self, company_info, out_dir=None):
         """
@@ -31,7 +33,12 @@ class ConsensusAnalyst:
         if out_dir is None:
             out_dir = f'./data/A{code}_summary'
 
-        print(f"미래 가이던스 분석: {company_info['corp_name']} ({code})")
+        # if consensus_analysis.md already exists, read and return the content
+        if os.path.exists(f'{out_dir}/consensus_analysis.md'):
+            with open(f'{out_dir}/consensus_analysis.md', 'r', encoding='utf-8') as md_file:
+                return md_file.read()
+
+        print(f"다음 분기 실적 전망 분석: {company_info['corp_name']} ({code})")
 
         try:
             # read earning_report.md file
@@ -57,7 +64,7 @@ class ConsensusAnalyst:
 
             if future_data.empty:
                 print("Warning: Future sheet is empty")
-                future_analysis = "미래 가이던스 데이터가 없습니다."
+                future_analysis = "미래 분기전망 데이터가 없습니다."
                 # create out_dir if not exists
                 os.makedirs(out_dir, exist_ok=True)
                 with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
@@ -70,7 +77,7 @@ class ConsensusAnalyst:
             future_analysis_prompt = f"""
             회사명: {company_info['corp_name']}
     
-            [다음 분기 가이던스 데이터]
+            [다음 분기 전망 데이터]
             {future_data_md}
     
             [현재 분기 실적 발표 데이터]
@@ -80,7 +87,7 @@ class ConsensusAnalyst:
             {past_data.to_markdown()}
     
             분석 지침 - 수치 중심 분석:
-            미래 가이던스 데이터를 기준으로 향후 재무 성과에 대해 전망하시오.
+            다음 분기 전망 데이터를 기준으로 향후 재무 성과에 대해 전망하시오.
             1. **핵심 수치 추출 및 나열**:
                - 매출액, 영업이익, 순이익, EPS 등 주요 지표별 구체적 수치 명시
                - 각 항목별 절대 금액(백만원) 및 비율(%) 정확히 표시
@@ -101,7 +108,7 @@ class ConsensusAnalyst:
                - 각 분기별 수익성 지표 변화 수치 계산
     
             출력 형식:
-            ## 1. 다음 분기 가이던스 데이터 요약
+            ## 1. 다음 분기 전망 데이터 요약
             - 매출: X백만원 (전년대비 +/-X.X%)
             - 영업이익: X백만원 (전년대비 +/-X.X%)
             - 순이익: X백만원 (전년대비 +/-X.X%)
@@ -125,14 +132,14 @@ class ConsensusAnalyst:
                 temperature=0.2
             )
 
+            # 인간 편집자 검토
+            future_analysis = self.human_editor.run(future_analysis)
+
             # 분석 결과를 markdown 파일로 저장
             # create out_dir if not exists
             os.makedirs(out_dir, exist_ok=True)
             with open(f'{out_dir}/consensus_analysis.md', 'w', encoding='utf-8') as md_file:
                 md_file.write(future_analysis)
-
-            # print 500 characters of future_analysis
-            print(f"\n미래 가이던스 분석 결과:\n{future_analysis[:500]}...\n")
 
             return future_analysis
 

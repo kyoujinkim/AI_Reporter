@@ -201,7 +201,7 @@ class PDFParser:
 
         first_page = min(page_numbers) + 1
         last_page = max(page_numbers) + 1
-        all_imgs = convert_from_path(pdf_path, dpi=self.dpi, first_page=first_page, last_page=last_page, poppler_path='C:/poppler/Library/bin')
+        all_imgs = convert_from_path(pdf_path, dpi=self.dpi, first_page=first_page, last_page=last_page, poppler_path=r'C:\Program Files\poppler-25.12.0\Library\bin')
 
         page_set = set(page_numbers)
         imgs = []
@@ -218,14 +218,14 @@ class PDFParser:
         다음 지침에 따라 **한국어**로 해석본을 작성하세요.
         
         [목표]
-        - 핵심 개요 → 불릿
+        - 핵심 정보 → 불릿
         - 주요 수치/지표 → **마크다운 테이블**(표준화된 컬럼명 활용)
         - 그래프/표가 암시하는 인사이트 → 2~4문장
         - 주석/주의사항(출처, 단위, 시점)
         
         [출력 형식]
-        ## 1) 핵심 요약
-        - (요점 3~5개)
+        ## 1) 핵심 정보 요약
+        - 글의 주제가 아닌, 포함된 중요 정보/사실/수치 중심으로 3~5개 불릿
         
         ## 2) 주요 수치 표
         - 필요 시 여러 표를 사용해도 좋음
@@ -258,8 +258,9 @@ class PDFParser:
         [출력 형식]
         # p{page_number:03d} 요약
         
-        ## 1) 핵심 요약
-        - (요점 3~5개)
+        ## 1) 핵심 정보
+        - 기재된 사실 또는 정보를 중심으로 작성
+        - 요점 3~5개
         
         ## 2) 주요 수치 표
         - 필요 시 여러 표를 사용해도 좋음

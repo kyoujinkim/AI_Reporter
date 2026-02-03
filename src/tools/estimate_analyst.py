@@ -5,6 +5,8 @@ import pandas as pd
 from pydantic import BaseModel
 
 from src.tools.agents import Agent
+from src.tools.human_interrupt import HumanEditor
+
 
 class Estimation(BaseModel):
     step1: str
@@ -13,14 +15,15 @@ class Estimation(BaseModel):
     #conclusion: str
 
 class EstimateAnalyst:
-    def __init__(self, openai_key):
+    def __init__(self, openai_key, model="gpt-4.1-mini"):
         print("\n\n🤴미래 실적 예측가를 불러옵니다.")
         self.estimatoragent = Agent(
             api_key=openai_key,
             name="EstimatorAgent",
             description="당신은 재무 예측 전문가입니다. 주어진 데이터를 바탕으로 합리적인 추정치를 계산하십시오.",
-            model="gpt-4.1-mini"
+            model=model
         )
+        self.human_editor = HumanEditor(openai_key, model)
 
     def run(self, company_info, out_dir=None):
         """
@@ -30,16 +33,32 @@ class EstimateAnalyst:
         if out_dir is None:
             out_dir = f'./data/A{code}_summary'
 
+        # if ai estimation file exists, read and return
+        if os.path.exists(f'{out_dir}/estimate_analysis.md'):
+            with open(f'{out_dir}/estimate_analysis.md', 'r', encoding='utf-8') as f:
+                existing_estimation = f.read()
+            print(f"기존 미래 실적 예측 분석 파일을 불러왔습니다: {out_dir}/estimate_analysis.md")
+            return existing_estimation
+
         print(f"미래 가이던스 분석: {company_info['corp_name']} ({code})")
 
         try:
             # read earning_report.md file
-            with open(f'{out_dir}/earnings_report.md', 'r', encoding='utf-8') as md_file:
-                earnings_analysis = md_file.read()
-            with open(f'{out_dir}/ir_summary.md', 'r', encoding='utf-8') as f:
-                ir_analysis = f.read()
-            with open(f'{out_dir}/news_analysis.md', 'r', encoding='utf-8') as f:
-                news_analysis = f.read()
+            try:
+                with open(f'{out_dir}/earnings_report.md', 'r', encoding='utf-8') as md_file:
+                    earnings_analysis = md_file.read()
+            except:
+                earnings_analysis = "실적 발표 데이터 없음"
+            try:
+                with open(f'{out_dir}/ir_summary.md', 'r', encoding='utf-8') as f:
+                    ir_analysis = f.read()
+            except:
+                ir_analysis = "IR 발표 자료 없음"
+            try:
+                with open(f'{out_dir}/news_analysis.md', 'r', encoding='utf-8') as f:
+                    news_analysis = f.read()
+            except:
+                news_analysis = "수집된 뉴스 데이터 없음"
 
             # past sheet 읽기
             sales_past_data = pd.read_excel(f'{out_dir}/IS.xlsx', sheet_name='sales', header=9, index_col=1).iloc[:, -1:]
@@ -86,13 +105,13 @@ class EstimateAnalyst:
             ### Step 1: 핵심 지표 분석 및 추세 파악\n{estimation.step1}\n\n
             ### Step 2: 질적 정보(IR & 뉴스)와 정량적 정보(실적)의 연관성 분석\n{estimation.step2}\n\n
             ### Step 3: 다음 분기 실적 추론 및 근거 제시\n{estimation.step3}\n"""
+
+            estimation_md = self.human_editor.run(estimation_md)
+
             # create out_dir if not exists
             os.makedirs(out_dir, exist_ok=True)
             with open(f'{out_dir}/estimate_analysis.md', 'w', encoding='utf-8') as md_file:
                 md_file.write(estimation_md)
-
-            # print 500 characters of future_analysis
-            print(f"\n미래 실적 예측 결과:\n{estimation_md[:500]}...\n")
 
             return estimation_md
 

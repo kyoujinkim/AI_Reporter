@@ -3,38 +3,94 @@ Markdown to PowerPoint Converter
 Converts markdown reports to PowerPoint presentations using a template
 """
 import configparser
-import json
 import re
-import os
-from dataclasses import dataclass
+import datetime as dt
+
 from pydantic import BaseModel
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict
 from pptx import Presentation
-from pptx.enum.dml import MSO_FILL
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.enum.dml import MSO_COLOR_TYPE
-from pptx.util import Inches, Cm, Pt
-from pptx.enum.text import PP_ALIGN
+from pptx.util import Pt
 from pptx.dml.color import RGBColor
 
 from src.tools.agents import Agent
 
+class InvestorImplication(BaseModel):
+    """
+    Investor Implication Structure
+    'implication' field는 주요 implication을 3~5개 이내 단어로 제시하세요.
+    'implication_detail' field는 각 implication에 대한 주요 detail을 정리하세요. 한 문장의 짧은 명사형 문장으로 작성해야합니다(ex. ... 목표로 제시, ... 단기 수익성에 부담, ... 관리 필요).
+    """
+    implication1: str
+    implication1_detail: str
+    implication2: str
+    implication2_detail: str
+    implication3: str
+    implication3_detail: str
+    implication4: str
+    implication4_detail: str
+
+class KeywordTable(BaseModel):
+    keynumber1: str
+    keyword1: str
+    detail1: str
+    keynumber2: str
+    keyword2: str
+    detail2: str
+    keynumber3: str
+    keyword3: str
+    detail3: str
+
+class EarningData(BaseModel):
+    '''
+    Earning Data Structure
+    actual: 실제 실적 수치
+    consensus: 컨센서스 수치
+    difference: 실제 실적과 컨센서스의 차이(%)
+    '''
+    actual: float
+    consensus: float
+    difference: float
+
+class CurrQEarning(BaseModel):
+    sales: EarningData
+    operating_profit: EarningData
+    shareholders_net_profit: EarningData
+
+class EarningEstimationRange(BaseModel):
+    """
+    Earning Estimation Range Structure
+    시나리오별 매출, 영업이익, 순이익 수치 범위를 간략히 제시하세요.
+    '최저금액 ~ 최고금액'으로 작성하세요.
+    """
+    sales_range: str
+    operating_profit_range: str
+    net_profit_range: str
+
+class EarningPoint(BaseModel):
+    point1: str
+    point_detail_bulletin1: str
+    point2: str
+    point_detail_bulletin2: str
+    point3: str
+    point_detail_bulletin3: str
+
+class ScenarioAnalysis(BaseModel):
+    """
+    Scenario Analysis Structure
+    시나리오별 매출, 영업이익, 순이익 전망을 간략히 서술하세요.
+    매출, 영업이익, 순이익이 측정된 이유를 명사형(~예상. ~전망. ~예측)으로 간략히 작성하세요.
+    단, 매출, 영업이익, 순이익 수치 범위는 이미 제시된 내용이므로 포함하지 마세요.
+    """
+    sales_scenario: str
+    operating_profit_scenario: str
+    net_profit_scenario: str
+
+class TextBox(BaseModel):
+    content: str
+
 class ReportManager:
-    class keyword_table(BaseModel):
-        keynumber1: str
-        keyword1: str
-        detail1: str
-        keynumber2: str
-        keyword2: str
-        detail2: str
-        keynumber3: str
-        keyword3: str
-        detail3: str
-
-    class text_box(BaseModel):
-        content: str
-
     def __init__(self, openai_key):
         print("\n\n🤵리포트 내용을 포맷화하는 Product Manager를 불러옵니다.")
         self.PMagent = Agent(
@@ -223,9 +279,8 @@ class ThemeMargin:
 class MDToPPTXConverter:
     """Main converter class"""
 
-    def __init__(self, template_path: str, shape_path: str, config_path: str = "D:/config.ini"):
+    def __init__(self, template_path: str, config_path: str = "D:/config.ini"):
         self.template_prs = self._load(template_path)
-        self.shape_prs = self._load(shape_path)
         self.parser = None
         self.converter = None
         self.themecolor = ThemeColor()
@@ -307,12 +362,22 @@ class MDToPPTXConverter:
         with open(md_file_path, 'r', encoding='utf-8') as f:
             md_content = f.read()
 
+        # md_file_path contains info about company f"aireport_{self.fncode}_{self.name}_{self.market}_{timestamp}.md"
+        _, code, name, market, date, hour = md_file_path.split('\\')[-1].replace('.md','').split('_')
+        code = code.replace('A', '')
+        code = f'({code}.{market})'
+        date = dt.datetime.strptime(date, '%Y%m%d').strftime('%Y/%m/%d')
+        date_text = f"Company Report : {date}"
+
         # Parse markdown
         self.parser = MarkdownParser(md_content)
         parsed_data = self.parser.parse()
 
+        # Set code, name, and date in all slides
+        self._set_code_name_date(code, name, date_text)
+
         # Populate slides based on parsed data
-        self._populate_slides(parsed_data, md_file_path)
+        self._populate_slides(parsed_data)
 
         # Generate output path if not provided
         if output_path is None:
@@ -324,18 +389,17 @@ class MDToPPTXConverter:
 
         return output_path
 
-    def _populate_slides(self, parsed_data: Dict, md_file_path: str):
+    def _populate_slides(self, parsed_data: Dict):
         """Populate slides with parsed markdown data"""
         sections = parsed_data['sections']
         title = parsed_data.get('title', '')
-        date = parsed_data.get('date', '')
 
         print(f"[INFO] Populating slides with content from markdown...")
         print(f"[INFO] Title: {title}")
         print(f"[INFO] Found {len(sections)} sections")
 
         # Populate Slide 1: Executive Summary
-        self._populate_slide_1(sections, title, date)
+        self._populate_slide_1(sections)
 
         # Populate Slide 2: Performance Analysis
         self._populate_slide_2(sections)
@@ -343,11 +407,10 @@ class MDToPPTXConverter:
         # Populate Slide 3: Scenario Analysis
         self._populate_slide_3(sections)
 
-        # Populate Slide 4: Charts
-        self._populate_slide_4(sections, md_file_path)
+        # Populate Slide 4: Conclusion
+        self._populate_slide_4(sections)
 
-        # Populate Slide 5: Conclusion
-        self._populate_slide_5(sections)
+        return True
 
     def _split_md(self, content: str) -> str:
         """Split markdown by text and table syntax from contet"""
@@ -430,14 +493,9 @@ class MDToPPTXConverter:
         # 5. Set the text of the first run
         p.runs[0].text = text
 
-        # 7. (CRITICAL) Delete all other runs (from index 1 onwards)
-        # This removes any leftover text from the original content
-
         # We must loop from the last run (index len-1) down to the second run (index 1)
         for i in range(len(p.runs) - 1, 0, -1):
             r = p.runs[i]
-            # This is the "secret" way to remove a run.
-            # It uses the internal lxml element representation.
             p._p.remove(r._r)
 
         # --- Cleanup Step 2: Delete all other paragraphs from the text_frame ---
@@ -446,57 +504,48 @@ class MDToPPTXConverter:
             p_to_remove = tf.paragraphs[i]
             tf._txBody.remove(p_to_remove._p)  # Remove the paragraph element
 
-        '''font = shape.text_frame.paragraphs[0].runs[0].font
-        font_name = font.name
-        font_size = font.size
-        font_bold = font.bold
-        font_type, font_color = MDToPPTXConverter._check_color_type(font.color)
-        if is_cell:
-            font_margin = (shape.margin_left, shape.margin_right, shape.margin_top, shape.margin_bottom)
-        font_align = shape.text_frame.paragraphs[0].alignment
+        return True
 
-        # assign new value
-        shape.text = text
+    def _set_code_name_date(self, code: str, name: str, date: str):
+        """Set code, name, and date in the slide"""
+        for slide in self.template_prs.slides:
+            code_shape = self._find_shape_by_name(slide, 'company_code')
+            name_shape = self._find_shape_by_name(slide, 'company_name')
+            date_shape = self._find_shape_by_name(slide, 'date')
 
-        # clear cell and re-apply font settings
-        font = shape.text_frame.paragraphs[0].font
-        shape.text_frame.paragraphs[0].alignment = font_align
-        font.name = font_name
-        font.size = font_size
-        font.bold = font_bold
-        if font_type == 'rgb':
-            font.color.rgb = font_color
-        elif font_type == 'scheme':
-            font.color.theme_color = font_color
-        else:
-            pass
-        if is_cell:
-            shape.margin_left = font_margin[0]
-            shape.margin_right = font_margin[1]
-            shape.margin_top = font_margin[2]
-            shape.margin_bottom = font_margin[3]'''
+            if code_shape:
+                self._convert_shape_text(code_shape, code)
+            if name_shape:
+                self._convert_shape_text(name_shape, name)
+            if date_shape:
+                self._convert_shape_text(date_shape, date)
 
         return True
 
-    def _populate_slide_1(self, sections: Dict, title: str, date: str):
+    def _populate_slide_1(self, sections: Dict):
         """Populate Slide 1 with executive summary"""
         if len(self.template_prs.slides) < 1:
             return
 
         slide = self.template_prs.slides[0]
-        print(f"[INFO] Populating Slide 1 (Executive Summary)...")
+        print(f"[INFO] Populating Slide 1 (Executive Summary and Earning Review Part1)...")
 
         summary_key = list(sections.keys())[0]
-        # Find summary sections
-        summary_content = sections[summary_key]['content']
-        summary_subsections = sections[summary_key].get('subsections', {})
 
         # subsections contains two sections. Summary and Keywords
+        summary_subsections = sections[summary_key].get('subsections', {})
         subsection_key = list(summary_subsections.keys())
-        subsection_content = self._split_md(summary_subsections[subsection_key[0]])
-        subsection_keyword = self._split_md(summary_subsections[subsection_key[1]])
 
-        subsection_keyword_formatted = self.pm.run(subsection_keyword, self.pm.keyword_table)
+        # Find summary sections
+        summary_content = sections[summary_key]['content']
+        for key in subsection_key:
+            if '요약' in key or 'Summary' in key:
+                summary_content += summary_subsections[key]
+        summary_shape = self._find_shape_by_name(slide, 'summary')
+        self._convert_shape_text(summary_shape, summary_content)
+
+        subsection_keyword = self._split_md(summary_subsections[subsection_key[-1]])
+        subsection_keyword_formatted = self.pm.run(subsection_keyword, KeywordTable)
         keyword_shape = self._find_shape_by_name(slide, 'keywords')
 
         # change text inside keyword_shapes' table to subsection_keyword_formatted
@@ -515,196 +564,216 @@ class MDToPPTXConverter:
                     if detail:
                         self._convert_shape_text(table.cell(2, i), detail, True)
 
-        if len(subsection_content)>1:
-            subsection_content_formatted = self.pm.run(subsection_content, self.pm.text_box, "").content
-        else:
-            subsection_content_formatted = subsection_content[0]['text']
-        summary_shape = self._find_shape_by_name(slide, 'summary')
-        self._convert_shape_text(summary_shape, subsection_content_formatted)
+        # Extract Section 2
+        sec2_key = list(sections.keys())[1]
+        sec2_subsection = sections[sec2_key]['subsections']
+        sec2_subsection_key = list(sec2_subsection.keys())
 
-        a = 1
+        # Extract Section 2-1
+        sec2_1 = sec2_subsection[sec2_subsection_key[0]]
+        sec2_1_formatted = self.pm.run(sec2_1, CurrQEarning)
+        earning_table_shape = self._find_shape_by_name(slide, 'earning_table')
+
+        # change text inside earning_table_shape's table to sec2_1_formatted
+        if earning_table_shape and hasattr(earning_table_shape, 'table'):
+            table = earning_table_shape.table
+            for i, n in zip([1, 2, 3], ['sales', 'operating_profit', 'shareholders_net_profit']):
+                actual = getattr(sec2_1_formatted, n, '').actual
+                consensus = getattr(sec2_1_formatted, n, '').consensus
+                if 0 > actual > consensus:
+                    difference = f'적자축소({actual - consensus:,.0f})'
+                elif 0 > consensus > actual:
+                    difference = f'적자확대({actual - consensus:,.0f})'
+                elif consensus >= 0 > actual:
+                    difference = f'적자전환({actual - consensus:,.0f})'
+                elif actual >= 0 > consensus:
+                    difference = f'흑자전환({actual - consensus:,.0f})'
+                else:
+                    difference = f'{(actual / consensus - 1)*100:,.1f}'
+
+                if i < len(table.columns):
+                    self._convert_shape_text(table.cell(i, 1), f'{actual:,.0f}', True)
+                    self._convert_shape_text(table.cell(i, 2), f'{consensus:,.0f}', True)
+                    self._convert_shape_text(table.cell(i, 3), difference, True)
+
+        # Extract Section 2-2
+        sec2_2 = sec2_subsection[sec2_subsection_key[1]]
+        sec2_2_formatted = self.pm.run(sec2_2, EarningPoint)
+        for i in range(1, 4):
+            topic = getattr(sec2_2_formatted, f'point{i}', '')
+            detail = getattr(sec2_2_formatted, f'point_detail_bulletin{i}', '')
+
+            topic_shape = self._find_shape_by_name(slide, f'earning_topic{i}')
+            detail_shape = self._find_shape_by_name(slide, f'earning_topic{i}_detail')
+
+            if topic_shape:
+                self._convert_shape_text(topic_shape, topic)
+            if detail_shape:
+                self._convert_shape_text(detail_shape, detail)
+
+        return True
 
     def _populate_slide_2(self, sections: Dict):
         """Populate Slide 2 with performance analysis"""
-        if len(self.converter.prs.slides) < 2:
+        if len(self.template_prs.slides) < 2:
             return
 
-        slide = self.converter.prs.slides[1]
-        print(f"[INFO] Populating Slide 2 (Performance Analysis)...")
+        slide = self.template_prs.slides[1]
+        print(f"[INFO] Populating Slide 2 (Earning Review Part 2)...")
 
-        # Find performance section
-        perf_key = None
-        for key in sections.keys():
-            if '실적 분석' in key or 'Performance' in key:
-                perf_key = key
-                break
+        sec2 = list(sections.keys())[1]
+        sec2_sub = sections[sec2]['subsections']
+        sec2_subkey = list(sec2_sub.keys())
 
-        if not perf_key:
-            print("[WARNING] No performance analysis section found")
-            return
+        # Find 2.3 content
+        content = sec2_sub[sec2_subkey[2]]
+        shape = self._find_shape_by_name(slide, 'extraordinary')
+        table = shape.table
+        self._convert_shape_text(table.cell(1, 0), content, True)
 
-        performance_section = sections[perf_key]
+        # Find 2.4 content
+        content = sec2_sub[sec2_subkey[3]]
+        shape = self._find_shape_by_name(slide, 'comment')
+        table = shape.table
+        self._convert_shape_text(table.cell(1, 0), content, True)
 
-        # Collect all tables from all subsections
-        all_tables = []
-        for subsection_name, subsection_content in performance_section.get('subsections', {}).items():
-            tables = MarkdownParser.extract_tables(subsection_content)
-            all_tables.extend(tables)
-            print(f"  - Found {len(tables)} tables in '{subsection_name}'")
+        # Find 2.5 content
+        content = sec2_sub[sec2_subkey[4]]
+        content_formatted = self.pm.run(content, InvestorImplication)
+        shape = self._find_shape_by_name(slide, 'investor_view')
+        table = shape.table
+        for i in [0, 1]:
+            implication1 = getattr(content_formatted, f'implication{i*2+1}', '')
+            detail1 = getattr(content_formatted, f'implication{i*2+1}_detail', '')
+            implication2 = getattr(content_formatted, f'implication{i*2+2}', '')
+            detail2 = getattr(content_formatted, f'implication{i*2+2}_detail', '')
 
-        # Populate tables in the slide
-        table_shapes = [s for s in slide.shapes if hasattr(s, 'table')]
-        for i, table_data in enumerate(all_tables):
-            if i < len(table_shapes):
-                self.converter.populate_table(table_shapes[i], table_data)
-                print(f"  - Populated table {i+1} with {len(table_data)} rows")
+            self._convert_shape_text(table.cell(i*2+1, 0), implication1, True)
+            self._convert_shape_text(table.cell(i*2+2, 0), detail1, True)
+            self._convert_shape_text(table.cell(i*2+1, 2), implication2, True)
+            self._convert_shape_text(table.cell(i*2+2, 2), detail2, True)
+
+        return True
 
     def _populate_slide_3(self, sections: Dict):
         """Populate Slide 3 with scenario analysis"""
-        if len(self.converter.prs.slides) < 3:
+        if len(self.template_prs.slides) < 3:
             return
 
-        slide = self.converter.prs.slides[2]
+        slide = self.template_prs.slides[2]
         print(f"[INFO] Populating Slide 3 (Scenario Analysis)...")
 
-        # Find scenario section
-        scenario_key = None
-        for key in sections.keys():
-            if '시나리오' in key or 'Scenario' in key:
-                scenario_key = key
-                break
+        # split subsection
+        sec3 = list(sections.keys())[2]
+        sec3_sub = sections[sec3]['subsections']
+        sec3_subkey = list(sec3_sub.keys())
 
-        if not scenario_key:
-            print("[WARNING] No scenario analysis section found")
-            return
+        earning_range_section = ""
+        scenario_section = ""
+        implication_section = ""
+        for key in sec3_subkey:
+            if "범위" in key:
+                earning_range_section = sec3_sub[key]
+            elif "시나리오" in key:
+                scenario_section = sec3_sub[key]
+            elif "시사점" in key:
+                implication_section = sec3_sub[key]
 
-        scenario_section = sections[scenario_key]
+        # set earning range into table
+        content_formatted_range = self.pm.run(earning_range_section, EarningEstimationRange)
+        shape = self._find_shape_by_name(slide, 'next_quarter')
+        table = shape.table
+        for i, n in zip([1, 2, 3], ['sales_range', 'operating_profit_range', 'net_profit_range']):
+            range_text = getattr(content_formatted_range, n, '')
+            self._convert_shape_text(table.cell(2, i), range_text, True)
 
-        # Collect all tables
-        all_tables = []
-        for subsection_name, subsection_content in scenario_section.get('subsections', {}).items():
-            tables = MarkdownParser.extract_tables(subsection_content)
-            all_tables.extend(tables)
-            print(f"  - Found {len(tables)} tables in '{subsection_name}'")
+        # set scenario analysis into text boxes
+        content_formatted_scenario = self.pm.run(scenario_section, ScenarioAnalysis)
+        shape = self._find_shape_by_name(slide, 'scenario_reason')
+        table = shape.table
+        for i, n, n2, k in zip([0, 2, 4]
+                , ['sales_scenario', 'operating_profit_scenario', 'net_profit_scenario']
+                , ['sales_range', 'operating_profit_range', 'net_profit_range']
+                , ['매출액', '영업이익' ,'지배순이익']):
+            scenario_text = getattr(content_formatted_scenario, n, '')
+            range_text = getattr(content_formatted_range, n2, '')
+            self._convert_shape_text(table.cell(1, i), f'{k} ({range_text} 억원)', True)
+            self._convert_shape_text(table.cell(2, i), scenario_text, True)
 
-        # Populate tables
-        table_shapes = [s for s in slide.shapes if hasattr(s, 'table')]
-        for i, table_data in enumerate(all_tables):
-            if i < len(table_shapes):
-                self.converter.populate_table(table_shapes[i], table_data)
-                print(f"  - Populated table {i+1} with {len(table_data)} rows")
+        # set implication into text boxes
+        content_formatted_implication = self.pm.run(implication_section, InvestorImplication)
+        shape = self._find_shape_by_name(slide, 'investor_view')
+        table = shape.table
+        for i in [0, 1]:
+            implication1 = getattr(content_formatted_implication, f'implication{i*2+1}', '')
+            detail1 = getattr(content_formatted_implication, f'implication{i*2+1}_detail', '')
+            implication2 = getattr(content_formatted_implication, f'implication{i*2+2}', '')
+            detail2 = getattr(content_formatted_implication, f'implication{i*2+2}_detail', '')
 
-    def _populate_slide_4(self, sections: Dict, md_file_path: str):
+            self._convert_shape_text(table.cell(i*2+1, 0), implication1, True)
+            self._convert_shape_text(table.cell(i*2+2, 0), detail1, True)
+            self._convert_shape_text(table.cell(i*2+1, 2), implication2, True)
+            self._convert_shape_text(table.cell(i*2+2, 2), detail2, True)
+
+        return True
+
+    def _populate_slide_4(self, sections: Dict):
         """Populate Slide 4 with charts"""
-        if len(self.converter.prs.slides) < 4:
+        if len(self.template_prs.slides) < 4:
             return
 
-        slide = self.converter.prs.slides[3]
+        slide = self.template_prs.slides[3]
         print(f"[INFO] Populating Slide 4 (Charts)...")
 
-        # Find chart references
-        chart_section = sections.get('추가 차트 분석', {})
-        if not chart_section:
-            for key in sections.keys():
-                if '차트' in key or 'Chart' in key:
-                    chart_section = sections[key]
-                    break
+        # split subsection
+        sec4 = list(sections.keys())[3]
+        sec4_sub = sections[sec4]['subsections']
+        sec4_subkey = list(sec4_sub.keys())
 
-        if not chart_section:
-            print("[WARNING] No chart section found")
-            return
+        conclusion = ""
+        investment_point = ""
+        caution_point = ""
+        final_evaluation = ""
+        for key in sec4_subkey:
+            if "결론" in key:
+                conclusion = sec4_sub[key]
+            elif "투자포인트" in key:
+                investment_point = sec4_sub[key]
+            elif "주의포인트" in key:
+                caution_point = sec4_sub[key]
+            elif "평가" in key:
+                final_evaluation = sec4_sub[key]
 
-        # Extract charts from main content and subsections
-        charts = []
-        if isinstance(chart_section, dict):
-            # Check main content
-            content = chart_section.get('content', '')
-            charts.extend(MarkdownParser.extract_chart_references(content))
-
-            # Check subsections
-            for subsection_name, subsection_content in chart_section.get('subsections', {}).items():
-                charts.extend(MarkdownParser.extract_chart_references(subsection_content))
+        # split conclusion into 2 parts by paragraph
+        conclusion_text = conclusion.split('\n\n')
+        if len(conclusion_text) >= 2:
+            conclusion_part1 = conclusion_text[0]
+            conclusion_part2 = '\n\n'.join(conclusion_text[1:])
         else:
-            charts = MarkdownParser.extract_chart_references(str(chart_section))
+            conclusion_part1 = conclusion
+            conclusion_part2 = ""
 
-        print(f"  - Found {len(charts)} chart references")
+        # set conclusion into text boxes
+        shape = self._find_shape_by_name(slide, 'conclusion_text')
+        self._convert_shape_text(shape, conclusion_part1)
+        shape = self._find_shape_by_name(slide, 'conclusion_text2')
+        self._convert_shape_text(shape, conclusion_part2)
 
-        # Try to insert chart images
-        md_dir = Path(md_file_path).parent
-        picture_shapes = [s for s in slide.shapes if s.shape_type == 13]  # PICTURE type
+        # set investment point into table
+        shape = self._find_shape_by_name(slide, 'point1')
+        table = shape.table
+        self._convert_shape_text(table.cell(1, 0), investment_point, True)
 
-        for i, chart in enumerate(charts):
-            if chart['data_file'] and i < len(picture_shapes):
-                # Look for corresponding image file
-                chart_name = Path(chart['data_file']).stem.replace('generated_', '')
+        # set caution point into table
+        shape = self._find_shape_by_name(slide, 'point2')
+        table = shape.table
+        self._convert_shape_text(table.cell(1, 0), caution_point, True)
 
-                # Try different naming patterns
-                potential_images = [
-                    md_dir / f"generated_{chart_name}.png",
-                    md_dir / f"{chart_name}.png",
-                    md_dir / chart['data_file'].replace('.csv', '.png')
-                ]
+        # set final evaluation into textbox
+        shape = self._find_shape_by_name(slide, 'final_comment')
+        self._convert_shape_text(shape, final_evaluation)
 
-                for img_path in potential_images:
-                    if img_path.exists():
-                        try:
-                            # Replace image in picture shape
-                            picture = picture_shapes[i]
-                            left, top = picture.left, picture.top
-                            width, height = picture.width, picture.height
-
-                            # Remove old picture and add new one
-                            sp = picture._element
-                            sp.getparent().remove(sp)
-
-                            slide.shapes.add_picture(str(img_path), left, top, width, height)
-                            print(f"  - Inserted chart image: {img_path.name}")
-                            break
-                        except Exception as e:
-                            print(f"  - Failed to insert image {img_path.name}: {e}")
-
-    def _populate_slide_5(self, sections: Dict):
-        """Populate Slide 5 with conclusion"""
-        if len(self.converter.prs.slides) < 5:
-            return
-
-        slide = self.converter.prs.slides[4]
-        print(f"[INFO] Populating Slide 5 (Conclusion)...")
-
-        # Find conclusion section
-        conclusion_key = None
-        for key in sections.keys():
-            if '결론' in key or 'Conclusion' in key or '투자 의견' in key:
-                conclusion_key = key
-                break
-
-        if not conclusion_key:
-            print("[WARNING] No conclusion section found")
-            return
-
-        conclusion_content = sections[conclusion_key]['content']
-
-        # Get main paragraphs
-        lines = [line.strip() for line in conclusion_content.split('\n')
-                 if line.strip() and not line.strip().startswith('|')
-                 and not line.strip().startswith('#')
-                 and not line.strip().startswith('**투자 의견:**')
-                 and len(line.strip()) > 30]
-
-        # Find text boxes
-        text_boxes = [s for s in slide.shapes if hasattr(s, 'text_frame') and
-                      s.shape_type in [1, 17]]  # AUTO_SHAPE or TEXT_BOX
-
-        # Populate text boxes
-        if lines and text_boxes:
-            for i, text_box in enumerate(text_boxes[:len(lines)]):
-                if hasattr(text_box, 'text_frame'):
-                    text_box.text_frame.clear()
-                    p = text_box.text_frame.paragraphs[0]
-                    p.text = lines[i]
-                    p.font.size = Pt(11)
-                    p.font.name = 'Malgun Gothic'
-                    print(f"  - Populated text box {i+1}")
+        return True
 
 
 def main():
@@ -728,6 +797,6 @@ def main():
 
 if __name__ == '__main__':
     converter = MDToPPTXConverter('data/config/template.pptx', 'data/config/template_shapes.pptx')
-    a = converter.convert('output/A095340/ai_report_A095340_20251030_165119.md'
-                          , 'output/A095340/test_report.pptx')
+    a = converter.convert(r'C:\Users\NHWM\PycharmProjects\AI_Reporter\output\A353200\ai_report_A353200_20260129_170552.md'
+                          , 'tmp.pptx')
     print(f"[SUCCESS] Conversion completed: {a}")

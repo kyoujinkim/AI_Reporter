@@ -2,9 +2,9 @@
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 import tiktoken
 
 from unstructured.documents.elements import Element, Text, Title, NarrativeText, ListItem, Table
@@ -34,7 +34,7 @@ class Summarizer():
     Contains model settings and token limits.
     """
     def __init__(self, apikey, model: str = "gpt-4.1-nano-2025-04-14", chunk_tokens: int = 4000, target_summary_tokens: int = 2000,
-                 overlap_elems: int = 2, temperature: float = 0.2, max_rounds: int = 6):
+                 overlap_elems: int = 2, temperature: float = 0.2, max_rounds: int = 6, optional_prompt: Optional[str] = ''):
         self.model = model
         self.chunk_tokens = chunk_tokens
         self.target_summary_tokens = target_summary_tokens
@@ -43,6 +43,7 @@ class Summarizer():
         self.max_rounds = max_rounds
         self.client = OpenAI(api_key=apikey)
         self.ENC = self.get_encoding()
+        self.optional_prompt = optional_prompt
 
     # =========================
     # Tokenization
@@ -164,12 +165,7 @@ class Summarizer():
         The prompt explains the element tags so the model knows how to treat tables vs prose.
         """
         max_output_tokens = target_summary_tokens or self.target_summary_tokens
-        resp = self.client.responses.create(
-            model=self.model,
-            temperature=self.temperature,
-            max_output_tokens=max_output_tokens,
-            instructions=(
-                "당신은 원문 의미와 흐름을 충실히 반영하는 정확한 요약자입니다. "
+        instructions = ("당신은 원문 의미와 흐름을 충실히 반영하는 정확한 요약자입니다. "
                 "입력은 [TITLE], [TEXT], [NARRATIVE], [LIST], [TABLE](HTML 또는 텍스트)로 태그된 줄로 구성됩니다. "
                 "원문의 논리 구조와 맥락을 해치지 않으면서 핵심 포인트를 간결하게 추출하십시오. "
                 "모든 내용은 원문 흐름 순서에 맞게 요약하여, 독자가 맥락을 잃지 않도록 하십시오. "
@@ -177,11 +173,23 @@ class Summarizer():
                 "최근 시점의 변화, 최신 수치, 추세 전환점에는 가중치를 두고 명확히 드러내십시오. "
                 "중요한 이름, 날짜, 숫자는 반드시 보존하고, 의미 왜곡 없이 전달하십시오. "
                 "문맥 이해에 도움이 되면 불릿 포인트를 사용하되, 그렇지 않으면 간결하고 명확한 문장을 사용하십시오. "
-                "불필요한 세부사항이나 반복된 내용은 제거하고, 더 이상 요약할 것이 없을 경우 핵심만 남기십시오. "
-                "특히 시계열 데이터나 진행 과정이 있는 경우, 과거 대비 변화 방향과 그 의미를 반드시 언급하십시오."
-            ),
+                "반복된 내용은 제거하고, 더 이상 요약할 것이 없을 경우 핵심만 남기십시오. "
+                "특히 시계열 데이터나 진행 과정이 있는 경우, 과거 대비 변화 방향과 그 의미를 반드시 언급하십시오.\n") + self.optional_prompt
+        try:
+            resp = self.client.responses.create(
+            model=self.model,
+            temperature=self.temperature,
+            max_output_tokens=max_output_tokens,
+            instructions=instructions,
             input=f"{text}",
-        )
+            )
+        except BadRequestError:
+            resp = self.client.responses.create(
+            model=self.model,
+            max_output_tokens=max_output_tokens,
+            instructions=instructions,
+            input=f"{text}",
+            )
         return resp.output_text.strip()
 
     # =========================

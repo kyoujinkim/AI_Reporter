@@ -93,7 +93,7 @@ if __name__ == "__main__":
     earnings_estimation = estimate_analyst.run(company_info)
 
     # Generate AI Report
-    reporter = AIReporter(code, name, market)
+    reporter = AIReporter(code, name, market, model='gpt-5.2-2025-12-11')
     report_path = reporter.run()
 
     # Convert md into txt for human reading
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     if not os.path.exists(txt_folder):
         os.makedirs(txt_folder)
     for md_file in md_list:
-        txt_file = md_file.replace('.md', '.txt').replace('summary', 'summary_txt')
+        txt_file = txt_folder + '/' + md_file.split('\\')[-1].replace('.md', '.txt')
         convert_md_to_txt(md_file, txt_file)
 
     converter = MDToPPTXConverter('data/config/template.pptx')

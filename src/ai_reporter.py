@@ -14,6 +14,7 @@ import configparser
 import csv
 import shutil
 from datetime import datetime, timedelta
+from glob import glob
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 from pydantic import BaseModel
@@ -79,8 +80,6 @@ class AIReporter:
         
         # 한글 폰트 설정 (차트 생성용)
         self._setup_korean_font()
-
-        self.human_editor = HumanEditor(openai_key, model)
         
     def _load_config(self):
         """설정 파일에서 API 키 로드"""
@@ -134,6 +133,8 @@ class AIReporter:
             투자자에게 유용한 차트 유형과 데이터를 추천하며, 차트별 제목과 설명을 제공합니다.""",
             model=model
         )
+
+        self.human_editor = HumanEditor(self.api_key, model)
         
     def _setup_korean_font(self):
         """한글 폰트 설정"""
@@ -240,6 +241,7 @@ class AIReporter:
         """실적 발표 결과와 기존 예측치 비교 분석"""
         prompt = f"""
         다음 데이터를 기반으로 실적 발표 결과가 기존 예측치를 상회/하회한 이유를 분석하세요.
+        IR 발표자료가 가장 신뢰도가 높으므로 이를 우선 반영하세요.
 
         **기업 사업 현황:**
         {data.get('company_business', '데이터 없음')}
@@ -260,7 +262,7 @@ class AIReporter:
         1. 실적이 예측치를 상회/하회한 핵심 요인 3가지
         2. 각 요인별 구체적 영향도 (정량적 수치 포함)
         3. 예상치 못한 변수나 일회성 요인 식별
-        4. 경영진 발표 내용에서 하이라이트 분석
+        4. 실적 발표 내용에서 하이라이트 분석
         5. 투자자 관점에서의 시사점
 
         **출력 형식:**
@@ -280,8 +282,11 @@ class AIReporter:
         ### 4. 투자 시사점
         [투자자가 알아야 할 핵심 포인트]
         """
-        
-        return self.analysis_agent.run(prompt, temperature=0.2)
+        response = self.analysis_agent.run(prompt, temperature=0.2)
+
+        revised_response = self.human_editor.run(response)
+
+        return revised_response
         
     def generate_scenarios(self, data: Dict[str, str]) -> str:
         """다음분기 컨센서스 기준 시나리오 생성"""
@@ -293,7 +298,8 @@ class AIReporter:
         estimation_data = data.get('estimate_analysis', '데이터 없음')
 
         base_prompt = f"""
-        다음 정보를 바탕으로 다음분기 실적에 대한 시나리오를 생성하세요:
+        다음 정보를 바탕으로 다음분기 실적에 대한 시나리오를 생성하세요.
+        IR 발표자료가 가장 신뢰도가 높으므로 이를 우선 반영하세요.
 
         **현재 실적 분석:**
         {analysis_result}
@@ -332,8 +338,10 @@ class AIReporter:
         """
 
         scenarios = self.scenario_agent.run(scenario_prompt, temperature=0.3)
+
+        revised_scenarios = self.human_editor.run(scenarios)
         
-        return scenarios
+        return revised_scenarios
         
     def make_chart(self, chart_type: str, data: Union[Dict, pd.DataFrame], 
                    title: str, filename: str, **kwargs) -> str:
@@ -623,7 +631,8 @@ class AIReporter:
         news = data.get('news_analysis', '데이터 없음')
 
         report_prompt = f"""
-        다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요. 주어진 분석 결과를 바탕으로 하고, 독자적인 해석이나 추가 정보를 포함하지 마세요.:
+        다음 분석 결과를 바탕으로 투자자를 위한 종합 보고서를 마크다운 형식으로 작성하세요. 주어진 분석 결과를 바탕으로 하고, 독자적인 해석이나 추가 정보를 포함하지 마세요.
+        종합보고서는 실적의 원인을 분석하되, 기업이 영위하는 사업과 제품, 신기술과 연관지어서 분석해야합니다.
 
         **실적 분석 결과:**
         {analysis_result}
@@ -644,7 +653,7 @@ class AIReporter:
         - 2.1. 실적 발표 주요 수치: 표 형식으로 실적 발표 내용 제시(정량적 수치 포함)
         - 2.2. 실적 상회/하회 원인 및 영향도 분석: 실적이 예측치를 상회/하회한 3가지 이유 분석. 각 요인별 구체적 영향도 서술(정량적 수치 포함)
         - 2.3. 일회성 및 특이 요인: 예상치 못한 변수나 일회성 요인 식별
-        - 2.4. 경영진 코멘트 분석: 경영진 발표 내용에서 하이라이트 분석
+        - 2.4. 실적 발표 자료 주요 포인트: 실적 발표 내용에서 하이라이트 분석
         - 2.5. 투자자 시사점: [소제목 - 투자자 관점에서의 시사점] 4개 제시
         3. 다음분기 시나리오(단일 시나리오) 분석
         - 3.1. 다음분기 실적 예상 범위: 표 형식으로 시나리오 수치 제시
@@ -790,6 +799,14 @@ class AIReporter:
 
     def run(self):
         """메인 실행 함수"""
+        file_list = glob(str(self.output_dir) + "/*.md")
+        if len(file_list) > 0:
+            print(f"⚠️ 경고: 출력 디렉터리 '{self.output_dir}'가 비어있지 않습니다. 새로 보고서를 생성하시겠습니까?")
+            proceed = input("계속 진행하시겠습니까? (y/n): ")
+            if proceed.lower() != 'y':
+                print("프로세스가 중단되었습니다.")
+                return file_list[-1]
+
         try:
             report_path = self.run_full_analysis()
 

@@ -106,6 +106,7 @@ class EstimateAnalyst:
             ### Step 2: 질적 정보(IR & 뉴스)와 정량적 정보(실적)의 연관성 분석\n{estimation.step2}\n\n
             ### Step 3: 다음 분기 실적 추론 및 근거 제시\n{estimation.step3}\n"""
 
+            self.human_editor.editagent.inherit_messages(self.estimatoragent)
             estimation_md = self.human_editor.run(estimation_md)
 
             # create out_dir if not exists

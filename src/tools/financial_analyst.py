@@ -87,6 +87,7 @@ class FinancialAnalyst:
             temperature=0.2
         )
 
+        self.human_editor.editagent.inherit_messages(self.tableagent)
         financial_analysis = self.human_editor.run(financial_analysis)
 
         # Save financial analysis to markdown file

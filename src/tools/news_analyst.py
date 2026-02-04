@@ -59,7 +59,11 @@ class NewsAnalyst:
             model=model
         )
 
-        self.human_editor = HumanEditor(openai_key, model)
+        self.human_editor = HumanEditor(
+            openai_key=openai_key,
+            model=model,
+            tools={type:'web_search'}
+        )
 
     def run(self, company_info, company_business: str = None, out_dir=None) -> str:
         code = company_info['stock_code']
@@ -381,7 +385,7 @@ class NewsAnalyst:
                     "include_raw_content": False,
                     "max_results": 15,
                     "days": 60,
-                    "include_domains": include_domains,
+                    #"include_domains": include_domains,
                     "exclude_domains": exclude_domains
                 },
                 timeout=15

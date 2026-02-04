@@ -106,6 +106,7 @@ class EarningsAnalyst:
             temperature=0.2
         )
 
+        self.human_editor.editagent.inherit_messages(self.tableagent)
         response = self.human_editor.run(response)
 
         # Save earnings analysis to markdown file

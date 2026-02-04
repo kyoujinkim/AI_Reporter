@@ -103,6 +103,7 @@ class IrAnalyst:
             print("IR.pdf와 SCRIPT.pdf 파일이 모두 존재하지 않습니다. IR 분석을 건너뜁니다.")
             return None
 
+        self.human_editor.editagent.inherit_messages(self.script_analysis_agent)
         summary = self.human_editor.run(summary)
 
         # Save IR summary to markdown file

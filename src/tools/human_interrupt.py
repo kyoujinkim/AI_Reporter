@@ -2,12 +2,13 @@ from src.tools.agents import Agent
 from langchain_core.tools import tool
 
 class HumanEditor:
-    def __init__(self, openai_key, model='gpt-4.1-mini'):
+    def __init__(self, openai_key, model='gpt-4.1-mini', tools=None):
         self.editagent = Agent(
             api_key=openai_key,
             name="EditorAgent",
             description="당신은 입력받은 수정 요구를 반영하여 텍스트를 수정하는 전문가입니다.",
-            model=model
+            model=model,
+            tools=tools
         )
 
     def run(self, text):

@@ -16,18 +16,24 @@ class Agent:
     def add_message(self, role, content):
         self.messages.append({"role": role, "content": content})
 
+    # inherit message from other agents
+    def inherit_messages(self, other_agent):
+        self.messages.extend(other_agent.messages)
+
     def run(self, prompt, temperature=0.7):
         self.messages.append({"role": "system", "content": prompt})
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.messages,
+                tools=self.tools,
                 temperature=temperature
             )
         except BadRequestError:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=self.messages,
+                tools=self.tools
             )
         self.messages.append(response.choices[0].message)
 
@@ -40,12 +46,14 @@ class Agent:
             model=self.model,
             input=self.messages,
             temperature=temperature,
+            tools=self.tools,
             text_format=response_format
             )
         except BadRequestError:
             response = self.client.responses.parse(
             model=self.model,
             input=self.messages,
+            tools=self.tools,
             text_format=response_format
             )
 

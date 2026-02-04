@@ -132,6 +132,7 @@ class ConsensusAnalyst:
                 temperature=0.2
             )
 
+            self.human_editor.editagent.inherit_messages(self.tableagent)
             # 인간 편집자 검토
             future_analysis = self.human_editor.run(future_analysis)
 

@@ -26,7 +26,7 @@ class IrAnalyst:
         self.human_editor = HumanEditor(
             openai_key=openai_key,
             model=model,
-            tools={'type':'web_search'}
+            tools=[{'type':'web_search'}]
         )
         self.pdfparser = pdf_parser.PDFParser(model=model)
         self.summarizer = summarizer.Summarizer(apikey=openai_key, model=model, chunk_tokens=3000, target_summary_tokens=1000)

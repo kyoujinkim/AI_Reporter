@@ -31,7 +31,7 @@ class HumanEditor:
             elif user_input.lower() == 'rollback':
                 # find recent [작성 문서] message and remove it
                 for i in range(len(self.editagent.messages)-1, -1, -1):
-                    if "[작성 문서]" in self.editagent.messages[i]['content']:
+                    if "[작성 문서]" in self.editagent.messages[i].get('content', ''):
                         print("최근 수정 내용을 롤백했습니다.")
                         break
                     else:
@@ -44,7 +44,7 @@ class HumanEditor:
                 print(f"\n수정 결과:\n{text}\n")
 
         for i in range(len(self.editagent.messages) - 1, -1, -1):
-            if "[작성 문서]" in self.editagent.messages[i]['content']:
+            if "[작성 문서]" in self.editagent.messages[i].get('content', ''):
                 return self.editagent.messages[i]['content'].replace('[작성 문서]\n\n', '')
 
 

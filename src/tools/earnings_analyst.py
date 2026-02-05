@@ -25,7 +25,7 @@ class EarningsAnalyst:
         self.human_editor = HumanEditor(
             openai_key=openai_key,
             model=model,
-            tools={'type':'web_search'}
+            tools=[{'type':'web_search'}]
         )
         self.dart = OpenDartReader(dart_key)
 

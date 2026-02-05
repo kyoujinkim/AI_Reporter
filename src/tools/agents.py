@@ -9,19 +9,19 @@ class Agent:
         self.name = name
         self.model = model
         self.description = description
-        self.messages = [{"role": "system", "content": self.description}]
+        self.messages = [{"role": "system", "content": self.description, "type": "message"}]
         self.tools = tools if tools is not None else []
         self.client = OpenAI(api_key=api_key, http_client=http_client)
 
     def add_message(self, role, content):
-        self.messages.append({"role": role, "content": content})
+        self.messages.append({"role": role, "content": content, "type": "message"})
 
     # inherit message from other agents
     def inherit_messages(self, other_agent):
         self.messages.extend(other_agent.messages)
 
     def run(self, prompt, temperature=0.7):
-        self.messages.append({"role": "system", "content": prompt})
+        self.messages.append({"role": "user", "content": prompt, "type": "message"})
         try:
             response = self.client.responses.create(
                 model=self.model,
@@ -35,12 +35,13 @@ class Agent:
                 input=self.messages,
                 tools=self.tools,
             )
-        self.messages.append(response.output)
+        for item in response.output:
+            self.messages.append(item.model_dump())
 
         return response.output_text
 
     def run_with_structured_format(self, prompt, response_format, temperature=0.7):
-        self.messages.append({"role": "system", "content": prompt})
+        self.messages.append({"role": "user", "content": prompt, "type": "message"})
         try:
             response = self.client.responses.parse(
             model=self.model,

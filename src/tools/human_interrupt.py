@@ -6,7 +6,7 @@ class HumanEditor:
         self.editagent = Agent(
             api_key=openai_key,
             name="EditorAgent",
-            description="당신은 입력받은 수정 요구를 반영하여 텍스트를 수정하는 전문가입니다.",
+            description="당신은 문서를 편집하는 전문가입니다. 사용자의 수정 요구를 반영하여 기존에 작성되었던 문서를 수정합니다.",
             model=model,
             tools=tools
         )
@@ -14,23 +14,39 @@ class HumanEditor:
     def run(self, text):
         # confirm final report with human interruption
         print(f"\n분석 결과:\n{text}...\n\n")
-        print("분석이 완료되었습니다. 내용을 확인하고 잘못된 부분에 대해 수정할 부분을 입력하세요. 없으면 엔터를 누르세요.")
+        print("""분석이 완료되었습니다. 내용을 확인하고 잘못된 부분에 대해 수정할 부분을 입력하세요.\n
+만약 수정된 내용을 중간 저장하려면 'save'를 입력하세요.\n
+최근 수정 내용을 롤백해서 제거하고, 중간에 저장한 결과물까지 돌아가려면 'rollback'을 입력하세요.\n
+수정이 완료되었으면 'exit'를 입력하세요. 'save'로 저장한 text가 최종 결과물이 됩니다.
+        """)
+        self.editagent.add_message(role="system", content='[작성 문서]\n\n' + text)
         while True:
-            user_input = input("수정할 부분이 있으면 입력하세요 (종료하려면 'exit' 입력): ")
-            if user_input.lower() == 'exit':
+            user_input = input("입력 : ")
+            if user_input.lower() == 'exit' or user_input.strip() == '':
+                print("종료합니다.")
                 break
-            elif user_input.strip() == '':
-                print("수정 없이 종료합니다.")
-                break
+            elif user_input.lower() == 'save':
+                print("중간 저장했습니다.")
+                self.editagent.add_message(role="system", content='[작성 문서]\n\n' + text)
+            elif user_input.lower() == 'rollback':
+                # find recent [작성 문서] message and remove it
+                for i in range(len(self.editagent.messages)-1, -1, -1):
+                    if "[작성 문서]" in self.editagent.messages[i]['content']:
+                        print("최근 수정 내용을 롤백했습니다.")
+                        break
+                    else:
+                        removed_message = self.editagent.messages.pop(i)
+                        print(f"롤백된 메시지: {removed_message}")
             else:
-                self.editagent.add_message(role="user", content=text)
                 text = self.editagent.run(
-                    prompt=f"문서에서 다음의 수정 요구를 반영하여 수정해 주세요.\n\n수정 요구: {user_input}"
+                    prompt=f"작성 문서에서 다음의 요청를 반영해 주세요.\n\n요청: {user_input}"
                 )
                 print(f"\n수정 결과:\n{text}\n")
-                self.editagent.add_message(role="assistant", content=text)
 
-        return text
+        for i in range(len(self.editagent.messages) - 1, -1, -1):
+            if "[작성 문서]" in self.editagent.messages[i]['content']:
+                return self.editagent.messages[i]['content'].replace('[작성 문서]\n\n', '')
+
 
     @tool
     def read_company_business(self) -> str:

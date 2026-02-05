@@ -23,21 +23,21 @@ class Agent:
     def run(self, prompt, temperature=0.7):
         self.messages.append({"role": "system", "content": prompt})
         try:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model,
-                messages=self.messages,
+                input=self.messages,
                 tools=self.tools,
                 temperature=temperature
             )
         except BadRequestError:
-            response = self.client.chat.completions.create(
+            response = self.client.responses.create(
                 model=self.model,
-                messages=self.messages,
-                tools=self.tools
+                input=self.messages,
+                tools=self.tools,
             )
-        self.messages.append(response.choices[0].message)
+        self.messages.append(response.output)
 
-        return response.choices[0].message.content
+        return response.output_text
 
     def run_with_structured_format(self, prompt, response_format, temperature=0.7):
         self.messages.append({"role": "system", "content": prompt})

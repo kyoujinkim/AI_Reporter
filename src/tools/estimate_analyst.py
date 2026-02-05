@@ -23,7 +23,11 @@ class EstimateAnalyst:
             description="당신은 재무 예측 전문가입니다. 주어진 데이터를 바탕으로 합리적인 추정치를 계산하십시오.",
             model=model
         )
-        self.human_editor = HumanEditor(openai_key, model)
+        self.human_editor = HumanEditor(
+            openai_key=openai_key,
+            model=model,
+            tools={'type':'web_search'}
+        )
 
     def run(self, company_info, out_dir=None):
         """

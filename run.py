@@ -46,7 +46,8 @@ if __name__ == "__main__":
 
     code = args.code #'418470'
     industry = args.industry #"전자책 정기구독 서비스"
-
+    code = "012510"
+    industry = "AI ERP 솔루션"
     # print time info and calculate time spent
     start_time = time.time()
     print(f"Start Time: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(start_time))}")

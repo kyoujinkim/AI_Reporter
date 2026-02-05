@@ -137,7 +137,7 @@ class AIReporter:
         self.human_editor = HumanEditor(
             openai_key=self.api_key,
             model=model,
-            tools=[{type:'web_search'}]
+            tools=[{'type':'web_search'}]
         )
         
     def _setup_korean_font(self):

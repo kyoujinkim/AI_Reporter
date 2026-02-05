@@ -22,7 +22,11 @@ class EarningsAnalyst:
             description="당신은 표를 분석하는 전문가입니다. 셀 내용을 그대로 재현하지 말고, 주요 결론(지표, 추세, 극값, 변화량, 주목할 만한 비교)을 설명하십시오.",
             model=model
         )
-        self.human_editor = HumanEditor(openai_key=openai_key, model=model)
+        self.human_editor = HumanEditor(
+            openai_key=openai_key,
+            model=model,
+            tools={'type':'web_search'}
+        )
         self.dart = OpenDartReader(dart_key)
 
     def run(self, company_info, out_dir=None):

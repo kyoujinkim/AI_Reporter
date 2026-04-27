@@ -21,7 +21,7 @@ class HumanEditor:
         """)
         self.editagent.add_message(role="system", content='[작성 문서]\n\n' + text)
         while True:
-            user_input = input("입력 : ")
+            user_input = input("입력(save/rollback/exit) : ")
             if user_input.lower() == 'exit' or user_input.strip() == '':
                 print("종료합니다.")
                 break

@@ -4,10 +4,13 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional
 
+import httpx
 from openai import OpenAI, BadRequestError
 import tiktoken
 
 from unstructured.documents.elements import Element, Text, Title, NarrativeText, ListItem, Table
+
+http_client = httpx.Client(verify=False)
 
 @dataclass
 class SummaryResult:
@@ -41,7 +44,7 @@ class Summarizer():
         self.overlap_elems = overlap_elems
         self.temperature = temperature
         self.max_rounds = max_rounds
-        self.client = OpenAI(api_key=apikey)
+        self.client = OpenAI(api_key=apikey, http_client=http_client)
         self.ENC = self.get_encoding()
         self.optional_prompt = optional_prompt
 

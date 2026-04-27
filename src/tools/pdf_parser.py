@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import List, Tuple, Optional
 
 import fitz  # PyMuPDF
+import httpx
 from pdf2image import convert_from_path
 from PIL import Image
 from pydantic import BaseModel
@@ -28,6 +29,7 @@ try:
 except Exception:
     OpenAI = None
 
+http_client = httpx.Client(verify=False)
 
 @dataclass
 class Chapter:
@@ -286,7 +288,7 @@ class PDFParser:
         if OpenAI is None:
             raise RuntimeError("openai package not available. Please `pip install openai` and try again.")
 
-        client = OpenAI(api_key=self.api_key)
+        client = OpenAI(api_key=self.api_key, http_client=http_client)
         content = [{"type": "text", "text": prompt_text}]
         for b64 in images_b64:
             content.append({"type": "image_url", "image_url": {"url": b64}})
@@ -297,7 +299,7 @@ class PDFParser:
                 messages=[{"role": "user", "content": content}],
                 response_format=OCRdata,
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
             )
             return resp.choices[0].message.parsed.text.strip()
         else:
@@ -305,7 +307,7 @@ class PDFParser:
                 model=self.model,
                 messages=[{"role": "user", "content": content}],
                 temperature=temperature,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
             )
             return resp.choices[0].message.content.strip()
 

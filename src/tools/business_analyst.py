@@ -19,7 +19,7 @@ class BusinessAnalyst:
         optional_prompt = ('한 기의 실적은 1년(12개월) 누적, 반기 실적은 6개월 누적, 분기 실적은 3개월 누적을 의미합니다.'
                            '따라서 반기 실적을 한 기 실적과 비교할 때에는 1년 치 실적에서 최근 6개월 치 실적을 빼서 비교해야 합니다.'
                            '분기 실적을 한 기 실적과 비교할 때에는 1년 치 실적에서 최근 9개월 치 실적을 빼서 비교해야 합니다.')
-        self.summarizer = Summarizer(apikey=openai_key, model=model, chunk_tokens=3000, target_summary_tokens=2000, optional_prompt=optional_prompt)
+        self.summarizer = Summarizer(apikey=openai_key, model=model, chunk_tokens=6000, target_summary_tokens=3000, optional_prompt=optional_prompt)
         self.human_editor = HumanEditor(openai_key, model)
 
     def run(self, company_info, out_dir=None):

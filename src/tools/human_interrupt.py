@@ -43,9 +43,10 @@ class HumanEditor:
                 )
                 print(f"\n수정 결과:\n{text}\n")
 
-        for i in range(len(self.editagent.messages) - 1, -1, -1):
-            if "[작성 문서]" in self.editagent.messages[i].get('content', ''):
-                return self.editagent.messages[i]['content'].replace('[작성 문서]\n\n', '')
+        #for i in range(len(self.editagent.messages) - 1, -1, -1):
+        #    if "[작성 문서]" in self.editagent.messages[i].get('content', ''):
+        #        return self.editagent.messages[i]['content'].replace('[작성 문서]\n\n', '')
+        return self.editagent.messages[-1]['content'].replace('[작성 문서]\n\n', '')
 
 
     @tool
